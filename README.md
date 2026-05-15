@@ -1,0 +1,102 @@
+# osm-lts
+
+Classify OpenStreetMap ways by **Level of Traffic Stress (LTS)** using the
+[Furth methodology](https://peterfurth.sites.northeastern.edu/level-of-traffic-stress/).
+
+LTS is a 1–4 scale from "kid-comfortable" (1) to "strong-and-fearless only"
+(4). It's the standard advocacy and planning input for "where is the bike
+network actually rideable for a typical adult" — far more honest than miles
+of "bike infrastructure" because it captures whether that infrastructure is
+on a calm street or a six-lane arterial.
+
+## Install
+
+```bash
+pip install osm-lts
+```
+
+Pure Python, no dependencies, Python 3.9+.
+
+## Use
+
+```python
+from osm_lts import classify
+
+classify({"highway": "residential", "maxspeed": "25 mph"})
+# <LTS.MOST_ADULTS: 2>
+
+classify({"highway": "primary"})
+# <LTS.STRONG_AND_FEARLESS: 4>
+
+classify({"highway": "cycleway"})
+# <LTS.KID_COMFORTABLE: 1>
+
+classify({"highway": "footway"})
+# None — outside scope (not relevant to cyclist stress)
+```
+
+The function takes any `Mapping[str, str]` of OSM tags. Numeric tags
+(`maxspeed`, `lanes`) tolerate units (`"25 mph"`, `"50 km/h"`, `"4;3"`) —
+only the leading digits are read. The result is an `IntEnum`, so
+`int(classify(tags))` gives you the bare LTS value for serialization.
+
+### CLI
+
+The package ships with an `osm-lts` command for batch jobs:
+
+```bash
+echo '{"highway": "residential", "maxspeed": "25 mph"}' | osm-lts classify
+# {"tags": {"highway": "residential", "maxspeed": "25 mph"}, "lts": 2}
+
+osm-lts classify --in ways.jsonl --out lts.jsonl
+```
+
+Input is JSON, JSONL, or a single JSON array — auto-detected.
+
+## How it works
+
+The classifier mirrors Furth's published rules:
+
+| Tier  | Description                  | Example triggers                                                |
+| :---: | ---------------------------- | --------------------------------------------------------------- |
+| LTS 1 | Suitable for children        | `highway=cycleway`, `living_street`, `cycleway=track`           |
+| LTS 2 | Most adults will tolerate    | `residential` ≤25 mph, bike lane on a slow street               |
+| LTS 3 | Experienced cyclists only    | `tertiary`, fast residential, bike lane on a faster street      |
+| LTS 4 | Strong-and-fearless only     | `primary` / `trunk`, `>35 mph`, `≥3 lanes` and `>30 mph`        |
+
+The branches evaluate top-to-bottom and short-circuit on the first match.
+Order matters — a `cycleway=track` on a 40 mph arterial returns LTS 1
+because separation wins over speed. Highways outside scope (`motorway`,
+`footway`, `sidewalk`, `steps`, `pedestrian`) return `None`.
+
+When `maxspeed` or `lanes` are missing, highway-typical defaults fill in:
+
+```python
+from osm_lts import (
+    DEFAULT_SPEED_MPH_BY_HIGHWAY,
+    DEFAULT_LANE_COUNT_BY_HIGHWAY,
+    EXCLUDED_HIGHWAYS,
+)
+```
+
+These are public so callers can read them in their own UIs (e.g. "we
+assumed 25 mph because the way was untagged"). A future minor release will
+support overriding them via a `Classifier` instance.
+
+## Origin
+
+Extracted from the [Bike Streets](https://bikestreets.com/) city-mapping
+platform. The same classifier powers Bike Streets' citywide LTS overlay
+and the LTS Projects ranker (which uses LTS to surface the corridors on
+the low-stress network most in need of an upgrade).
+
+## Development
+
+```bash
+pip install -e '.[test]'
+pytest
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
