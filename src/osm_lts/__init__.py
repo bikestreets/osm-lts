@@ -6,7 +6,7 @@ Python function operating on OSM tag dicts. No PostGIS, no Django, no
 network I/O — just OSM tags in, LTS 1-4 (or ``None``) out.
 """
 
-from ._classify import LTS, classify
+from ._classify import LTS, Classifier, classify
 from ._constants import (
     CYCLEWAY_TAG_KEYS,
     DEFAULT_LANE_COUNT_BY_HIGHWAY,
@@ -16,10 +16,11 @@ from ._constants import (
     EXCLUDED_HIGHWAYS,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "LTS",
+    "Classifier",
     "classify",
     "EXCLUDED_HIGHWAYS",
     "DEFAULT_SPEED_MPH_BY_HIGHWAY",

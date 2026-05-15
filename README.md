@@ -80,15 +80,37 @@ from osm_lts import (
 ```
 
 These are public so callers can read them in their own UIs (e.g. "we
-assumed 25 mph because the way was untagged"). A future minor release will
-support overriding them via a `Classifier` instance.
+assumed 25 mph because the way was untagged").
+
+### Customizing the rules
+
+Wrap a `Classifier` instance to override any of the defaults. Useful for
+modeling a city or country whose posted-speed conventions or in-scope
+highway set differ from the US-centric defaults the package ships with.
+
+```python
+from osm_lts import Classifier, EXCLUDED_HIGHWAYS
+
+# Stricter unknown-speed default:
+strict = Classifier(speed_mph_fallback=20)
+strict({"highway": "residential"})  # <LTS.MOST_ADULTS: 2>
+
+# Drop pedestrian-priority paths out of scope entirely:
+narrower = Classifier(excluded_highways=EXCLUDED_HIGHWAYS | {"path"})
+narrower({"highway": "path", "bicycle": "designated"})  # None
+
+# Per-highway speed overrides:
+slower_residential = Classifier(speed_mph_by_highway={"residential": 20})
+```
+
+`Classifier` is a frozen dataclass — instances are hashable and
+thread-safe to share. Use `dataclasses.replace(clf, ...)` for tweaked
+copies.
 
 ## Origin
 
 Extracted from the [Bike Streets](https://bikestreets.com/) city-mapping
-platform. The same classifier powers Bike Streets' citywide LTS overlay
-and the LTS Projects ranker (which uses LTS to surface the corridors on
-the low-stress network most in need of an upgrade).
+platform.
 
 ## Development
 
