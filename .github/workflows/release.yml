@@ -1,0 +1,31 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Trusted Publishing OIDC exchange
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e '.[test]' build
+      - run: pytest
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # No-op when pyproject's version is already on PyPI, so a
+          # routine commit that doesn't bump the version is silently
+          # skipped instead of failing the workflow.
+          skip-existing: true
