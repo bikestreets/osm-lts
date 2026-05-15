@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0 — 2026-05-15
+
+Packaging and tooling pass to support external consumers. No
+behavior changes to the classifier — the public API is unchanged
+from 0.2.0.
+
+- Ship `py.typed` so downstream type checkers (mypy, pyright) pick
+  up the package's type hints (PEP 561).
+- Metadata: SPDX license expression (`License-Expression: MIT`)
+  with explicit `license-files`; added `Source` project URL.
+- Single source of truth for the package version: `__version__`
+  in `osm_lts/__init__.py`, with `pyproject.toml` deriving from
+  it via hatch's regex source.
+- CI: GitHub Actions test matrix on Python 3.9–3.13 on every
+  push and pull request.
+- Docstring examples in `Classifier` now run as part of `pytest`
+  via `--doctest-modules`, so they can't silently drift.
+- Trusted-Publishing release workflow: pushing a version bump to
+  `main` auto-publishes to PyPI via OIDC (no API tokens).
+
 ## 0.2.0 — 2026-05-15
 
 - New `Classifier` class — frozen dataclass exposing the previously-

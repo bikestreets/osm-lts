@@ -16,7 +16,7 @@ from ._constants import (
     EXCLUDED_HIGHWAYS,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "LTS",
