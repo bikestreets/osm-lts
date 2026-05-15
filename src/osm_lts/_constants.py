@@ -53,6 +53,29 @@ DEFAULT_LANE_COUNT_BY_HIGHWAY: dict[str, int] = {
 }
 DEFAULT_LANE_COUNT_FALLBACK: int = 2
 
+# Rule-tier highway sets — kept as module-level constants (not on
+# ``Classifier``) because they're part of Furth's published rule
+# tree, not tunable defaults. The Python branches in ``_classify``
+# and the SQL emitter in ``sql`` both read from here so adding a
+# new arterial type is a one-place edit.
+_BIKE_LANE_KINDS: frozenset = frozenset(
+    {"lane", "opposite_lane", "shared_lane"}
+)
+_LTS4_HIGHWAYS: frozenset = frozenset(
+    {"primary", "primary_link", "trunk", "trunk_link"}
+)
+_LTS3_HIGHWAYS: frozenset = frozenset(
+    {
+        "tertiary",
+        "tertiary_link",
+        "secondary",
+        "secondary_link",
+        "residential",
+        "unclassified",
+    }
+)
+
+
 # OSM cycleway sub-tags consulted in priority order. ``cycleway`` (the
 # unprefixed key) wins when present, then per-side variants. A way
 # tagged with conflicting sides (e.g. lane right, track left) returns

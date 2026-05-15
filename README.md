@@ -105,6 +105,50 @@ a network LTS analysis, but it's not the whole methodology:
   or coverage tool means doing that analysis on top of the
   per-way scores this library returns.
 
+### SQL form (PostgreSQL / osm2pgsql)
+
+The same rules are also available as a PostgreSQL `CASE` expression
+via `osm_lts.sql`. The SQL emitter and the Python classifier share
+their constants — change a default in one place and both forms move
+together.
+
+```python
+from osm_lts.sql import lts_case_expression
+
+sql = f"""
+    SELECT
+        id,
+        ({lts_case_expression()}) AS lts
+    FROM planet_osm_ways
+    WHERE tags ? 'highway'
+"""
+```
+
+Defaults assume **osm2pgsql slim mode with `--hstore-all`** —
+tags live as `hstore` on `planet_osm_ways.tags` and are cast to
+`jsonb` for `->>` extraction. Different schemas (osm2pgsql flex,
+imposm3, custom DDL) work via per-input keyword overrides:
+
+```python
+lts_case_expression(
+    tags_jsonb="pw.tags::jsonb",   # custom alias
+    highway_sql="pol.highway",      # pre-extracted column
+)
+```
+
+`Classifier` overrides flow into the SQL too — a city-specific
+tuning produces SQL with the new defaults baked in:
+
+```python
+clf = Classifier(speed_mph_fallback=20)
+lts_case_expression(classifier=clf)  # emits "ELSE 20" in the speed CASE
+```
+
+The submodule also exposes the building blocks individually
+(`speed_mph_expression`, `lane_count_expression`,
+`cycleway_kind_expression`, `excluded_highways_in_list`) for use in
+custom queries.
+
 ### Customizing the rules
 
 Wrap a `Classifier` instance to override any of the defaults. Useful for

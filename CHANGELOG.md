@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0 — 2026-05-15
+
+- New `osm_lts.sql` submodule. Emits a PostgreSQL `CASE` expression
+  that returns the same LTS classification as
+  `osm_lts.classify`, designed to drop directly into a `SELECT` over
+  OSM tag rows — useful for tile servers and bulk classification
+  passes where running per-row Python is the wrong shape.
+- Single source of truth for the constants: the SQL emitter reads
+  from the same `Classifier` (and the same `_constants` module) the
+  Python classifier uses, so per-highway speed defaults, exclusion
+  set, lane defaults, and cycleway sub-tag priority are defined
+  once and consumed by both forms.
+- Defaults target **osm2pgsql slim mode with hstore** — i.e., the
+  layout produced by `osm2pgsql --slim --hstore-all`. Other backends
+  (osm2pgsql flex output, imposm3, custom DDL) are supported via
+  per-input keyword overrides — every tag extraction is replaceable.
+- Classifier overrides flow into the SQL too:
+  `Classifier(speed_mph_fallback=20)` produces SQL with `ELSE 20`
+  baked into the speed CASE.
+- Building-block helpers exposed too — `speed_mph_expression`,
+  `lane_count_expression`, `cycleway_kind_expression`,
+  `excluded_highways_in_list` — for use in custom queries that
+  don't want the full LTS tier.
+- 24 new structural tests cover override flow-through and the
+  shared-constants property; total 68 passing.
+
 ## 0.3.0 — 2026-05-15
 
 Packaging and tooling pass to support external consumers. No

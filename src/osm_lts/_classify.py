@@ -39,18 +39,12 @@ class LTS(IntEnum):
 
 
 _NON_DIGIT_RE = re.compile(r"[^0-9]")
-_BIKE_LANE_KINDS = frozenset({"lane", "opposite_lane", "shared_lane"})
-_LTS4_HIGHWAYS = frozenset({"primary", "primary_link", "trunk", "trunk_link"})
-_LTS3_HIGHWAYS = frozenset(
-    {
-        "tertiary",
-        "tertiary_link",
-        "secondary",
-        "secondary_link",
-        "residential",
-        "unclassified",
-    }
-)
+# Rule-tier sets live in ``_constants`` so the SQL emitter can read
+# the same definitions — adding a new arterial type stays a one-
+# place edit. Aliased here for readability of the rule branches.
+_BIKE_LANE_KINDS = C._BIKE_LANE_KINDS
+_LTS3_HIGHWAYS = C._LTS3_HIGHWAYS
+_LTS4_HIGHWAYS = C._LTS4_HIGHWAYS
 
 
 def _coerce_int(value: Optional[str]) -> Optional[int]:
