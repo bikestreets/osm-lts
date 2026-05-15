@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "osm-lts"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Classify OpenStreetMap ways by Level of Traffic Stress (LTS) using the Furth methodology."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -47,6 +47,9 @@ Homepage = "https://github.com/bikestreets/osm-lts"
 Source = "https://github.com/bikestreets/osm-lts"
 Issues = "https://github.com/bikestreets/osm-lts/issues"
 Changelog = "https://github.com/bikestreets/osm-lts/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/osm_lts/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/osm_lts"]
