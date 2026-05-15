@@ -52,5 +52,5 @@ Changelog = "https://github.com/bikestreets/osm-lts/blob/main/CHANGELOG.md"
 packages = ["src/osm_lts"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-ra"
+testpaths = ["tests", "src"]
+addopts = "-ra --doctest-modules"
