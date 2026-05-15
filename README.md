@@ -1,5 +1,10 @@
 # osm-lts
 
+[![PyPI version](https://img.shields.io/pypi/v/osm-lts.svg)](https://pypi.org/project/osm-lts/)
+[![Python versions](https://img.shields.io/pypi/pyversions/osm-lts.svg)](https://pypi.org/project/osm-lts/)
+[![CI](https://github.com/bikestreets/osm-lts/actions/workflows/test.yml/badge.svg)](https://github.com/bikestreets/osm-lts/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/pypi/l/osm-lts.svg)](https://github.com/bikestreets/osm-lts/blob/main/LICENSE)
+
 Classify OpenStreetMap ways by **Level of Traffic Stress (LTS)** using the
 [Furth methodology](https://peterfurth.sites.northeastern.edu/level-of-traffic-stress/).
 
