@@ -149,6 +149,107 @@ The submodule also exposes the building blocks individually
 `cycleway_kind_expression`, `excluded_highways_in_list`) for use in
 custom queries.
 
+#### Recipes for different OSM database layouts
+
+**1. osm2pgsql slim + hstore (the default)** — `tags` lives as `hstore`
+on `planet_osm_ways.tags`; no extra columns. The defaults work as-is:
+
+```python
+from osm_lts.sql import lts_case_expression
+
+sql = f"""
+    SELECT id, ({lts_case_expression()}) AS lts
+    FROM planet_osm_ways
+    WHERE tags ? 'highway'
+"""
+```
+
+**2. osm2pgsql slim, classifying alongside `planet_osm_line` geometry** —
+`planet_osm_line` materializes `highway`, `name`, etc. as columns, but
+the full tag bag is back on `planet_osm_ways.tags`. Use the cheap column
+where it's available, fall back to the tag bag for everything else:
+
+```python
+sql = f"""
+    SELECT
+        pol.osm_id,
+        pol.way AS geom,
+        ({lts_case_expression(
+            tags_jsonb="pw.tags::jsonb",
+            highway_sql="pol.highway",
+            maxspeed_sql="(pw.tags::jsonb)->>'maxspeed'",
+        )}) AS lts
+    FROM planet_osm_line pol
+    JOIN planet_osm_ways pw ON pw.id = pol.osm_id
+    WHERE pol.highway IS NOT NULL
+"""
+```
+
+(Pre-filtering on `pol.highway IS NOT NULL` is much faster than
+post-filtering on the LTS `NULL` result.)
+
+**3. osm2pgsql flex output with native `jsonb` tags** — flex Lua often
+defines a single table with `tags jsonb` (no hstore cast needed). Drop
+the `::jsonb` and the rest works:
+
+```python
+sql = f"""
+    SELECT id, ({lts_case_expression(tags_jsonb="tags")}) AS lts
+    FROM osm_ways  -- whatever your flex script named it
+"""
+```
+
+**4. imposm3** — different schema again. Tags live as `hstore` on
+`osm_roads.tags`, but most fields you care about are already broken
+out into columns. Use the materialized columns and convert the hstore
+to jsonb only for cycleway sub-tags:
+
+```python
+sql = f"""
+    SELECT
+        osm_id,
+        geometry,
+        ({lts_case_expression(
+            tags_jsonb="hstore_to_jsonb(tags)",  # for cycleway COALESCE
+            highway_sql="type",                    # imposm3 names it 'type'
+            maxspeed_sql="tags->'maxspeed'",       # raw hstore -> text
+            bicycle_sql="tags->'bicycle'",
+        )}) AS lts
+    FROM osm_roads
+"""
+```
+
+(`tags->'k'` is the hstore text accessor — analogous to JSON `->>`.)
+
+**5. Custom schema with a pre-resolved cycleway column** — if your ETL
+already collapsed `cycleway` / `cycleway:right` / `cycleway:left` /
+`cycleway:both` down to a single `cycleway_kind` column, skip the
+COALESCE entirely:
+
+```python
+sql = f"""
+    SELECT id, ({lts_case_expression(
+        cycleway_kind_sql="cycleway_kind",  # plain column reference
+    )}) AS lts
+    FROM ways_with_resolved_cycleway
+"""
+```
+
+**6. Pre-filtering at the source** — for tile servers and other hot
+paths, drop excluded highways at the row source so the CASE never sees
+them:
+
+```python
+from osm_lts.sql import excluded_highways_in_list, lts_case_expression
+
+sql = f"""
+    SELECT id, ({lts_case_expression()}) AS lts
+    FROM planet_osm_ways
+    WHERE tags->'highway' IS NOT NULL
+      AND tags->'highway' NOT IN ({excluded_highways_in_list()})
+"""
+```
+
 ### Customizing the rules
 
 Wrap a `Classifier` instance to override any of the defaults. Useful for
