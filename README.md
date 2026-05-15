@@ -87,6 +87,24 @@ from osm_lts import (
 These are public so callers can read them in their own UIs (e.g. "we
 assumed 25 mph because the way was untagged").
 
+### Scope and limitations
+
+The classifier treats each OSM way in isolation — it reads that
+way's tags and returns a tier. That's the foundational input to
+a network LTS analysis, but it's not the whole methodology:
+
+- **No intersection effects.** A calm residential that crosses a
+  hostile arterial is still LTS 2 here; full Furth would penalize
+  the unsignalized crossing.
+- **No adjacent-way context.** Parking presence, buffer width,
+  and sidewalk separation aren't read from neighboring ways. A
+  bike lane next to a parking lane is scored the same as one
+  without.
+- **No network-level analysis.** The output is a per-way score,
+  not "low-stress islands" or connectivity. Building a routing
+  or coverage tool means doing that analysis on top of the
+  per-way scores this library returns.
+
 ### Customizing the rules
 
 Wrap a `Classifier` instance to override any of the defaults. Useful for
