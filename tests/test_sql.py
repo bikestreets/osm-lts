@@ -185,6 +185,20 @@ def test_lts_case_uses_shared_lts4_set() -> None:
         assert f"'{hw}'" in out
 
 
+def test_lts_case_path_bicycle_accepts_yes_and_designated() -> None:
+    """The ``highway=path`` branch widens to ``bicycle IN ('yes',
+    'designated')``, mirroring the Python rule. Real paved trails are
+    often tagged ``bicycle=yes`` rather than the strict ``designated``
+    — see Sloan's Lake Trail in Denver, e.g.
+    https://www.openstreetmap.org/way/25671996.
+    """
+    out = lts_case_expression()
+    assert "= 'path'" in out
+    assert "'yes'" in out and "'designated'" in out
+    # Belt-and-braces: the old narrow form should be gone.
+    assert "'bicycle' = 'designated'" not in out
+
+
 # ---------------------------------------------------------------------------
 # Sanity: SQL emitter and Python classifier read the SAME defaults
 # ---------------------------------------------------------------------------

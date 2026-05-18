@@ -163,7 +163,7 @@ class Classifier:
         # traffic.
         if highway == "cycleway":
             return LTS.KID_COMFORTABLE
-        if highway == "path" and bicycle == "designated":
+        if highway == "path" and bicycle in C._PATH_BICYCLE_LTS1:
             return LTS.KID_COMFORTABLE
         if highway == "living_street":
             return LTS.KID_COMFORTABLE

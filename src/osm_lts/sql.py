@@ -243,6 +243,7 @@ def lts_case_expression(
     # edit.
     lts4_in = _quote_in(C._LTS4_HIGHWAYS)
     bike_lane_in = _quote_in(C._BIKE_LANE_KINDS)
+    path_bicycle_in = _quote_in(C._PATH_BICYCLE_LTS1)
     lts2_residential_in = _quote_in({"residential", "unclassified"})
     tertiary_in = _quote_in({"tertiary", "tertiary_link"})
     secondary_in = _quote_in({"secondary", "secondary_link"})
@@ -255,7 +256,7 @@ def lts_case_expression(
 
     -- LTS 1: separated, designated, slow-by-design
     WHEN {h} = 'cycleway' THEN 1
-    WHEN {h} = 'path' AND {b} = 'designated' THEN 1
+    WHEN {h} = 'path' AND {b} IN ({path_bicycle_in}) THEN 1
     WHEN {h} = 'living_street' THEN 1
     WHEN ({cw}) = 'track' THEN 1
 

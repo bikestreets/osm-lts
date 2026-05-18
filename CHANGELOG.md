@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1 — 2026-05-18
+
+- Fix: `highway=path` with `bicycle=yes` now classifies as LTS 1,
+  matching the `bicycle=designated` case. Real paved shared-use
+  trails (e.g. Denver's Sloan's Lake Trail) are commonly tagged
+  with the looser `yes` value rather than the strict `designated`;
+  the previous rule sent them to the LTS 3 catch-all. `permissive`
+  / `official` / untagged-`bicycle` paths stay at the conservative
+  fall-through so under-tagged hiking trails aren't over-claimed.
+- The accepted set lives in `_constants._PATH_BICYCLE_LTS1` so the
+  Python classifier and the SQL emitter read it from one place.
+
 ## 0.4.0 — 2026-05-15
 
 - New `osm_lts.sql` submodule. Emits a PostgreSQL `CASE` expression
