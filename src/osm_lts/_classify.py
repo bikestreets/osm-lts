@@ -151,7 +151,6 @@ class Classifier:
         if not highway or highway in self.excluded_highways:
             return None
 
-        bicycle = tags.get("bicycle")
         cycleway_kind = self._resolve_cycleway_kind(tags)
         speed_mph = self._resolve_speed_mph(highway, tags.get("maxspeed"))
         lane_count = self._resolve_lane_count(highway, tags.get("lanes"))
@@ -163,7 +162,7 @@ class Classifier:
         # traffic.
         if highway == "cycleway":
             return LTS.KID_COMFORTABLE
-        if highway == "path" and bicycle in C._PATH_BICYCLE_LTS1:
+        if highway == "path":
             return LTS.KID_COMFORTABLE
         if highway == "living_street":
             return LTS.KID_COMFORTABLE

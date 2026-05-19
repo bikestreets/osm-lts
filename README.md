@@ -213,7 +213,6 @@ sql = f"""
             tags_jsonb="hstore_to_jsonb(tags)",  # for cycleway COALESCE
             highway_sql="type",                    # imposm3 names it 'type'
             maxspeed_sql="tags->'maxspeed'",       # raw hstore -> text
-            bicycle_sql="tags->'bicycle'",
         )}) AS lts
     FROM osm_roads
 """

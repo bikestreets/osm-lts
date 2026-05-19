@@ -184,7 +184,6 @@ def lts_case_expression(
     highway_sql: Optional[str] = None,
     maxspeed_sql: Optional[str] = None,
     lanes_sql: Optional[str] = None,
-    bicycle_sql: Optional[str] = None,
     cycleway_kind_sql: Optional[str] = None,
     classifier: Classifier = _DEFAULT_CLASSIFIER,
 ) -> str:
@@ -212,7 +211,6 @@ def lts_case_expression(
             this when ``highway`` is a separate column.
         maxspeed_sql: Override the ``->>'maxspeed'`` extraction.
         lanes_sql: Override the ``->>'lanes'`` extraction.
-        bicycle_sql: Override the ``->>'bicycle'`` extraction.
         cycleway_kind_sql: Override the cycleway COALESCE entirely
             — useful when cycleway sub-tags are pre-resolved to a
             single column.
@@ -228,7 +226,6 @@ def lts_case_expression(
     h = highway_sql or f"({tags_jsonb})->>'highway'"
     m = maxspeed_sql or f"({tags_jsonb})->>'maxspeed'"
     ln = lanes_sql or f"({tags_jsonb})->>'lanes'"
-    b = bicycle_sql or f"({tags_jsonb})->>'bicycle'"
     cw = cycleway_kind_sql or cycleway_kind_expression(
         tags_jsonb, classifier=classifier
     )
@@ -243,7 +240,6 @@ def lts_case_expression(
     # edit.
     lts4_in = _quote_in(C._LTS4_HIGHWAYS)
     bike_lane_in = _quote_in(C._BIKE_LANE_KINDS)
-    path_bicycle_in = _quote_in(C._PATH_BICYCLE_LTS1)
     lts2_residential_in = _quote_in({"residential", "unclassified"})
     tertiary_in = _quote_in({"tertiary", "tertiary_link"})
     secondary_in = _quote_in({"secondary", "secondary_link"})
@@ -256,7 +252,7 @@ def lts_case_expression(
 
     -- LTS 1: separated, designated, slow-by-design
     WHEN {h} = 'cycleway' THEN 1
-    WHEN {h} = 'path' AND {b} IN ({path_bicycle_in}) THEN 1
+    WHEN {h} = 'path' THEN 1
     WHEN {h} = 'living_street' THEN 1
     WHEN ({cw}) = 'track' THEN 1
 

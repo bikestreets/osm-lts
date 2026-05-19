@@ -75,15 +75,6 @@ _LTS3_HIGHWAYS: frozenset = frozenset(
     }
 )
 
-# ``bicycle`` permission values that promote a ``highway=path`` way to
-# LTS 1. ``designated`` is the strict "officially a multi-use trail"
-# form; ``yes`` is the more common tagging on real paved trails like
-# Denver's Sloan's Lake Trail. Stricter values (``permissive``,
-# ``official``) and unset/no-class values stay at the conservative
-# fall-through so under-tagged hiking paths aren't over-claimed.
-_PATH_BICYCLE_LTS1: frozenset = frozenset({"yes", "designated"})
-
-
 # OSM cycleway sub-tags consulted in priority order. ``cycleway`` (the
 # unprefixed key) wins when present, then per-side variants. A way
 # tagged with conflicting sides (e.g. lane right, track left) returns

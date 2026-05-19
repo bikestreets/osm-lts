@@ -19,6 +19,7 @@ from osm_lts import LTS, classify
     [
         # LTS 1 — separated, designated, slow-by-design
         ({"highway": "cycleway"}, LTS.KID_COMFORTABLE),
+        ({"highway": "path"}, LTS.KID_COMFORTABLE),
         ({"highway": "path", "bicycle": "designated"}, LTS.KID_COMFORTABLE),
         ({"highway": "path", "bicycle": "yes"}, LTS.KID_COMFORTABLE),
         ({"highway": "living_street"}, LTS.KID_COMFORTABLE),
@@ -131,13 +132,15 @@ def test_protected_track_beats_arterial_speed() -> None:
 
 
 def test_paved_shared_use_path_is_lts1() -> None:
-    """A paved multi-use path tagged ``bicycle=yes`` (not ``designated``)
-    is still a separated path and should be LTS 1.
+    """A paved multi-use path is LTS 1 regardless of the ``bicycle``
+    value, since ``highway=path`` itself promotes to LTS 1.
 
     Tag profile from Sloan's Lake Trail in Denver, e.g.
     https://www.openstreetmap.org/way/25671996 — a real-world
-    shared-use trail that fell through to the LTS 3 catch-all before
-    the rule was widened to accept ``bicycle in {yes, designated}``.
+    shared-use trail. Before the rule was simplified to "any
+    ``highway=path``", this profile fell through to the LTS 3
+    catch-all because the original rule required
+    ``bicycle=designated``.
     """
     tags = {
         "bicycle": "yes",

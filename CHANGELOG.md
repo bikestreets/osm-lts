@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.2 — 2026-05-18
+
+- Simplify the `highway=path` rule: any `highway=path` way now
+  classifies as LTS 1, with no `bicycle`-tag qualifier. Previously
+  the rule accepted only `bicycle in {yes, designated}`; the
+  broadening keeps the rule tree short and picks up untagged paved
+  paths that the previous form missed. The trade-off is over-claim
+  on `highway=path` used for hiking/singletrack — see
+  README "Scope and limitations" for the cost.
+- Removed `_PATH_BICYCLE_LTS1` and the `bicycle_sql` keyword on
+  `lts_case_expression` — both unused after the rule simplifies.
+
 ## 0.4.1 — 2026-05-18
 
 - Fix: `highway=path` with `bicycle=yes` now classifies as LTS 1,
