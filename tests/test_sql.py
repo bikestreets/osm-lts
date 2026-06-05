@@ -59,11 +59,10 @@ def test_speed_expression_else_uses_classifier_fallback() -> None:
     assert "ELSE 20" in speed_mph_expression(classifier=clf)
 
 
-def test_speed_expression_strips_units_via_regex() -> None:
-    """The COALESCE branch matches the Python ``_coerce_int``."""
+def test_speed_expression_extracts_leading_digits() -> None:
+    """The COALESCE branch matches the Python ``_coerce_int`` (first digit run)."""
     out = speed_mph_expression()
-    assert "regexp_replace" in out
-    assert "'[^0-9]'" in out
+    assert "substring(tags::jsonb->>'maxspeed' from '[0-9]+')::int" in out
 
 
 def test_speed_expression_accepts_custom_inputs() -> None:
@@ -88,6 +87,16 @@ def test_lane_expression_includes_classifier_default() -> None:
 def test_lane_expression_fallback() -> None:
     clf = Classifier(lane_count_fallback=3)
     assert "ELSE 3" in lane_count_expression(classifier=clf)
+
+
+def test_lane_expression_extracts_leading_digits() -> None:
+    # A raw ``lanes::int`` cast crashes on non-integer OSM values like
+    # ``"1.5"`` (narrow two-way streets). ``substring(... from '[0-9]+')``
+    # both avoids that DataError and keeps the SQL in parity with the
+    # Python ``_coerce_int`` path.
+    out = lane_count_expression()
+    assert "substring(tags::jsonb->>'lanes' from '[0-9]+')::int" in out
+    assert "tags::jsonb->>'lanes'::int" not in out
 
 
 # ---------------------------------------------------------------------------

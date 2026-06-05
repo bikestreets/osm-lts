@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.3 — 2026-06-05
+
+- Fix: free-form numeric tags (`maxspeed`, `lanes`) are now parsed as
+  their **first run of digits** instead of a strip-and-concatenate of
+  every digit. `"1.5"` → `1` (was `15`), `"4;3"` → `4` (was `43`),
+  `"30;40"` → `30` (was `3040`). The old behavior was an
+  order-of-magnitude error that, via the `lanes >= 3` LTS-4 rule,
+  flipped narrow calm streets into the high-stress bucket.
+- Fix: the SQL `lane_count_expression` cast `lanes::int` directly,
+  which raised `invalid input syntax for type integer` (aborting the
+  whole tile query) on any non-integer `lanes` value such as `"1.5"`.
+  Both `speed_mph_expression` and `lane_count_expression` now use
+  `substring(<tag> from '[0-9]+')::int`, which extracts the leading
+  integer and yields `NULL` (→ highway default) when there are none —
+  matching the corrected Python `_coerce_int` exactly.
+
 ## 0.4.2 — 2026-05-18
 
 - Simplify the `highway=path` rule: any `highway=path` way now

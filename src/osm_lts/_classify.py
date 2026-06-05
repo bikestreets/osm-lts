@@ -38,7 +38,7 @@ class LTS(IntEnum):
     STRONG_AND_FEARLESS = 4
 
 
-_NON_DIGIT_RE = re.compile(r"[^0-9]")
+_LEADING_DIGITS_RE = re.compile(r"\d+")
 # Rule-tier sets live in ``_constants`` so the SQL emitter can read
 # the same definitions — adding a new arterial type stays a one-
 # place edit. Aliased here for readability of the rule branches.
@@ -48,17 +48,24 @@ _LTS4_HIGHWAYS = C._LTS4_HIGHWAYS
 
 
 def _coerce_int(value: Optional[str]) -> Optional[int]:
-    """Strip non-digits from an OSM tag value and return ``int``, else ``None``.
+    """Read the first integer out of a free-form OSM tag value, else ``None``.
 
     OSM ``maxspeed`` and ``lanes`` are free-form strings: ``"25 mph"``,
-    ``"50 km/h"``, ``"4"``, ``"4;3"``. We only consume the leading
-    digits — anything that doesn't yield digits returns ``None`` and
-    the caller falls back to a highway-typical default.
+    ``"50 km/h"``, ``"4"``, ``"4;3"``, ``"1.5"``. We consume the *first
+    run of digits* and stop — so ``"25 mph"`` → ``25``, ``"1.5"`` → ``1``,
+    ``"4;3"`` → ``4``. Anything with no digits returns ``None`` and the
+    caller falls back to a highway-typical default.
+
+    Earlier this stripped *all* non-digits and concatenated what was
+    left, which turned ``"1.5"`` into ``15`` and ``"4;3"`` into ``43``
+    — an order-of-magnitude error that, via the ``lanes >= 3`` LTS-4
+    rule, flipped narrow calm streets into the high-stress bucket. The
+    SQL emitter mirrors this with ``substring(<tag> from '[0-9]+')``.
     """
     if value is None:
         return None
-    digits = _NON_DIGIT_RE.sub("", str(value))
-    return int(digits) if digits else None
+    match = _LEADING_DIGITS_RE.search(str(value))
+    return int(match.group()) if match else None
 
 
 @dataclass(frozen=True)

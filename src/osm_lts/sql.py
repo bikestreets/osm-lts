@@ -107,10 +107,12 @@ def speed_mph_expression(
     """Resolve speed_mph from highway + maxspeed string.
 
     Mirrors :meth:`Classifier._resolve_speed_mph` exactly: explicit
-    ``maxspeed`` if numerically-strippable, else the per-highway
-    default, else ``classifier.speed_mph_fallback``. The
-    ``regexp_replace`` strips units (``"25 mph"`` → ``"25"``) before
-    the int cast, matching the Python ``_coerce_int`` behavior.
+    ``maxspeed`` if it carries a number, else the per-highway default,
+    else ``classifier.speed_mph_fallback``. ``substring(<maxspeed> from
+    '[0-9]+')`` pulls the first run of digits (``"25 mph"`` → ``"25"``,
+    ``"1.5"`` → ``"1"``) and yields ``NULL`` when there is none, matching
+    the Python ``_coerce_int`` behavior and never casting a non-integer
+    string to ``::int``.
     """
     branches = "\n".join(
         f"            WHEN {highway_sql} = {_quote(hw)} THEN {n}"
@@ -118,10 +120,7 @@ def speed_mph_expression(
     )
     return (
         "COALESCE(\n"
-        f"    NULLIF(\n"
-        f"        regexp_replace({maxspeed_sql}, '[^0-9]', '', 'g'),\n"
-        f"        ''\n"
-        f"    )::int,\n"
+        f"    substring({maxspeed_sql} from '[0-9]+')::int,\n"
         f"    CASE\n"
         f"{branches}\n"
         f"        ELSE {classifier.speed_mph_fallback}\n"
@@ -138,11 +137,20 @@ def lane_count_expression(
 ) -> str:
     """Resolve lane_count from highway + lanes string.
 
-    Same shape as :func:`speed_mph_expression` — explicit ``lanes``
-    after digit-stripping (``"4;3"`` → ``43`` would be wrong, so we
-    only ``NULLIF('')`` here without the regex; OSM ``lanes`` values
-    are typically clean integers, and the worst case is a fall-
-    through to the highway-typical default).
+    Same shape as :func:`speed_mph_expression`, using the same
+    ``substring(<lanes> from '[0-9]+')`` first-digit-run extraction
+    before the ``::int`` cast. This matters for two reasons:
+
+    1. **Safety.** OSM ``lanes`` is a free-form string. A raw
+       ``{lanes_sql}::int`` raises ``invalid input syntax for type
+       integer`` on any non-integer value (e.g. ``"1.5"`` on a narrow
+       two-way street, ``"4;3"`` on a multi-way), aborting the whole
+       query. ``substring`` extracts ``"1"`` / ``"4"`` instead, and
+       yields ``NULL`` (→ highway default) when there are no digits.
+    2. **Parity.** This must mirror :meth:`Classifier._resolve_lane_count`,
+       which calls ``_coerce_int`` (first run of digits): ``"1.5"`` →
+       ``1``, ``"4;3"`` → ``4``. The SQL and Python classifications stay
+       in lockstep.
     """
     branches = "\n".join(
         f"            WHEN {highway_sql} = {_quote(hw)} THEN {n}"
@@ -150,7 +158,7 @@ def lane_count_expression(
     )
     return (
         "COALESCE(\n"
-        f"    NULLIF({lanes_sql}, '')::int,\n"
+        f"    substring({lanes_sql} from '[0-9]+')::int,\n"
         f"    CASE\n"
         f"{branches}\n"
         f"        ELSE {classifier.lane_count_fallback}\n"

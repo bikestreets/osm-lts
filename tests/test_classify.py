@@ -113,6 +113,30 @@ def test_lanes_strips_units_too() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("25 mph", 25),
+        ("50 km/h", 50),
+        ("4", 4),
+        # First run of digits only — NOT a strip-and-concatenate. ``"1.5"``
+        # is 1, not 15; ``"4;3"`` is 4, not 43. The old concatenating form
+        # turned a 1.5-lane calm street into "15 lanes" and tripped the
+        # ``lanes >= 3`` → LTS 4 rule backwards.
+        ("1.5", 1),
+        ("4;3", 4),
+        ("30;40", 30),
+        ("none", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_coerce_int_reads_first_digit_run(raw, expected) -> None:
+    from osm_lts._classify import _coerce_int
+
+    assert _coerce_int(raw) == expected
+
+
 def test_cycleway_subkey_priority() -> None:
     """``cycleway:right`` is read when the unprefixed ``cycleway`` is absent."""
     tags = {
