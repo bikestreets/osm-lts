@@ -42,6 +42,23 @@ DEFAULT_SPEED_MPH_BY_HIGHWAY: dict[str, int] = {
 }
 DEFAULT_SPEED_MPH_FALLBACK: int = 25
 
+# Implicit/legal default speeds (mph) referenced by the OSM
+# ``maxspeed:type`` / ``source:maxspeed`` tags rather than posted on the
+# way itself. When a way carries no numeric ``maxspeed`` but does say
+# *which* legal default applies (e.g. ``maxspeed:type=US-CO:urban``),
+# that reference is a more authoritative fallback than guessing from the
+# highway class. Values are the US legal defaults catalogued by the OSM
+# wiki "Default speed limits" page / the osm-legal-default-speeds
+# dataset. A country-qualified zone (``US-CO:urban``) with no explicit
+# entry falls back to the country generic (``US:urban``) — see
+# ``Classifier._resolve_implicit_mph``. Add a state-qualified key here to
+# model a jurisdiction whose statutory default differs from the generic.
+DEFAULT_IMPLICIT_MAXSPEED_MPH: dict[str, int] = {
+    "US:living_street": 10,
+    "US:urban": 25,
+    "US:rural": 55,
+}
+
 # Lane-count defaults when ``lanes`` is missing.
 DEFAULT_LANE_COUNT_BY_HIGHWAY: dict[str, int] = {
     "residential": 2,

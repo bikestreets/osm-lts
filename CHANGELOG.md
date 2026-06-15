@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0 — 2026-06-15
+
+- Feature: `maxspeed` parsing is now **unit-aware**. A metric value
+  (`"50 km/h"`, `"50 kmh"`, `"50 kph"`) is converted to mph (`→ 31`)
+  instead of being read as the bare number `50` — which previously
+  pushed such ways over the `> 35 mph` LTS-4 threshold. Bare numbers and
+  `mph` values are still read as mph (US convention). Lanes are
+  unaffected (only speeds carry units). The SQL `speed_mph_expression`
+  mirrors this with a `~* 'km/?h|kmh|kph'` test and a `* 0.621371`
+  conversion before the `::int` cast.
+- Feature: when a way carries no numeric `maxspeed` but does reference a
+  legal default via `maxspeed:type` / `source:maxspeed` (e.g.
+  `US-CO:urban`), that zone is now resolved to its statutory speed
+  (`DEFAULT_IMPLICIT_MAXSPEED_MPH`) ahead of the per-highway guess.
+  Country-qualified zones fall back to the country generic
+  (`US-CO:urban` → `US:urban`). Overridable via the new
+  `Classifier(implicit_maxspeed_mph=...)` field; the SQL emitter accepts
+  a matching `maxspeed_type_sql` override.
+- Feature: new public `parse_maxspeed_mph()` so ingest/preprocessing code
+  can share the classifier's unit-aware `maxspeed` parse instead of
+  re-rolling a brittle `strip("mph")` parser.
+
 ## 0.4.3 — 2026-06-05
 
 - Fix: free-form numeric tags (`maxspeed`, `lanes`) are now parsed as

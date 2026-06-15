@@ -137,6 +137,75 @@ def test_coerce_int_reads_first_digit_run(raw, expected) -> None:
     assert _coerce_int(raw) == expected
 
 
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("25 mph", 25),
+        ("30", 30),  # bare number read as mph (US convention)
+        ("50 km/h", 31),  # metric converted: 50 * 0.621371 -> 31
+        ("50 kmh", 31),
+        ("50 kph", 31),
+        ("100 km/h", 62),
+        ("none", None),
+        ("walk", None),
+        ("signals", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_parse_maxspeed_mph_is_unit_aware(raw, expected) -> None:
+    from osm_lts import parse_maxspeed_mph
+
+    assert parse_maxspeed_mph(raw) == expected
+
+
+def test_metric_maxspeed_does_not_trip_lts4() -> None:
+    # 50 km/h is 31 mph, under the > 35 mph LTS-4 threshold. Before
+    # unit-aware parsing this read as 50 and forced the way to LTS 4.
+    assert (
+        classify({"highway": "tertiary", "maxspeed": "50 km/h"})
+        == LTS.EXPERIENCED_ONLY
+    )
+
+
+@pytest.mark.parametrize(
+    "type_tags, expected",
+    [
+        # No numeric maxspeed; the zone's legal default applies.
+        ({"maxspeed:type": "US:rural"}, LTS.STRONG_AND_FEARLESS),  # 55 -> >35
+        ({"maxspeed:type": "US:urban"}, LTS.MOST_ADULTS),  # 25 -> <=25
+        # Country-qualified zone folds to the generic.
+        ({"maxspeed:type": "US-CO:rural"}, LTS.STRONG_AND_FEARLESS),
+        # source:maxspeed is consulted too.
+        ({"source:maxspeed": "US:rural"}, LTS.STRONG_AND_FEARLESS),
+        # A non-zone source:maxspeed misses the table -> highway default (25).
+        ({"source:maxspeed": "sign"}, LTS.MOST_ADULTS),
+    ],
+)
+def test_implicit_maxspeed_type(type_tags, expected) -> None:
+    tags = {"highway": "residential", **type_tags}
+    assert classify(tags) == expected
+
+
+def test_explicit_maxspeed_beats_implicit_type() -> None:
+    # An explicit number always wins over the maxspeed:type zone.
+    tags = {
+        "highway": "residential",
+        "maxspeed": "40 mph",
+        "maxspeed:type": "US:urban",
+    }
+    assert classify(tags) == LTS.STRONG_AND_FEARLESS
+
+
+def test_implicit_maxspeed_mph_is_overridable() -> None:
+    from osm_lts import Classifier
+
+    clf = Classifier(implicit_maxspeed_mph={"US:urban": 40})
+    assert clf({"highway": "residential", "maxspeed:type": "US:urban"}) == (
+        LTS.STRONG_AND_FEARLESS
+    )
+
+
 def test_cycleway_subkey_priority() -> None:
     """``cycleway:right`` is read when the unprefixed ``cycleway`` is absent."""
     tags = {

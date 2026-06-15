@@ -64,7 +64,7 @@ from __future__ import annotations
 from typing import Optional
 
 from . import _constants as C
-from ._classify import Classifier, _DEFAULT_CLASSIFIER
+from ._classify import _KMH_TO_MPH, Classifier, _DEFAULT_CLASSIFIER
 
 __all__ = [
     "cycleway_kind_expression",
@@ -102,27 +102,63 @@ def speed_mph_expression(
     highway_sql: str = "tags::jsonb->>'highway'",
     maxspeed_sql: str = "tags::jsonb->>'maxspeed'",
     *,
+    maxspeed_type_sql: Optional[str] = None,
     classifier: Classifier = _DEFAULT_CLASSIFIER,
 ) -> str:
-    """Resolve speed_mph from highway + maxspeed string.
+    """Resolve speed_mph from highway + maxspeed (+ maxspeed:type) strings.
 
-    Mirrors :meth:`Classifier._resolve_speed_mph` exactly: explicit
-    ``maxspeed`` if it carries a number, else the per-highway default,
-    else ``classifier.speed_mph_fallback``. ``substring(<maxspeed> from
-    '[0-9]+')`` pulls the first run of digits (``"25 mph"`` → ``"25"``,
-    ``"1.5"`` → ``"1"``) and yields ``NULL`` when there is none, matching
-    the Python ``_coerce_int`` behavior and never casting a non-integer
-    string to ``::int``.
+    Mirrors :meth:`Classifier._resolve_speed_mph` exactly, in COALESCE
+    priority order:
+
+    1. **Explicit numeric ``maxspeed``**, unit-aware. ``substring(<maxspeed>
+       from '[0-9]+')`` pulls the first run of digits (``"25 mph"`` →
+       ``25``); a metric unit (``~* 'km/?h|kmh|kph'``) is converted with
+       ``* 0.621371`` and rounded (``"50 km/h"`` → ``31``). Yields ``NULL``
+       when there are no digits, never casting a non-integer to ``::int``.
+    2. **Implicit legal default** from ``maxspeed:type`` / ``source:maxspeed``.
+       ``regexp_replace`` folds a country-qualified zone to its generic
+       (``US-CO:urban`` → ``US:urban``) before matching
+       ``classifier.implicit_maxspeed_mph``. Unknown zones → ``NULL``.
+    3. **Per-highway default**, else ``classifier.speed_mph_fallback``.
+
+    ``maxspeed_type_sql`` defaults to ``COALESCE(<type>, <source>)`` over
+    the standard hstore→jsonb columns; pass your own when those tags are
+    materialized elsewhere.
     """
-    branches = "\n".join(
-        f"            WHEN {highway_sql} = {_quote(hw)} THEN {n}"
+    mt = maxspeed_type_sql or (
+        "COALESCE(\n"
+        "        tags::jsonb->>'maxspeed:type',\n"
+        "        tags::jsonb->>'source:maxspeed'\n"
+        "    )"
+    )
+    digits = f"substring({maxspeed_sql} from '[0-9]+')"
+    explicit = (
+        "CASE\n"
+        f"        WHEN {maxspeed_sql} ~* 'km/?h|kmh|kph'\n"
+        f"            THEN round({digits}::numeric * {_KMH_TO_MPH})::int\n"
+        f"        ELSE {digits}::int\n"
+        "    END"
+    )
+    implicit_branches = "\n".join(
+        f"        WHEN {_quote(zone)} THEN {n}"
+        for zone, n in classifier.implicit_maxspeed_mph.items()
+    )
+    implicit = (
+        f"CASE regexp_replace(COALESCE({mt}, ''),\n"
+        "             '^([A-Za-z]+)-[A-Za-z]+(:.+)$', '\\1\\2')\n"
+        f"{implicit_branches}\n"
+        "    END"
+    )
+    highway_branches = "\n".join(
+        f"        WHEN {highway_sql} = {_quote(hw)} THEN {n}"
         for hw, n in classifier.speed_mph_by_highway.items()
     )
     return (
         "COALESCE(\n"
-        f"    substring({maxspeed_sql} from '[0-9]+')::int,\n"
+        f"    {explicit},\n"
+        f"    {implicit},\n"
         f"    CASE\n"
-        f"{branches}\n"
+        f"{highway_branches}\n"
         f"        ELSE {classifier.speed_mph_fallback}\n"
         f"    END\n"
         ")"
@@ -191,6 +227,7 @@ def lts_case_expression(
     tags_jsonb: str = "tags::jsonb",
     highway_sql: Optional[str] = None,
     maxspeed_sql: Optional[str] = None,
+    maxspeed_type_sql: Optional[str] = None,
     lanes_sql: Optional[str] = None,
     cycleway_kind_sql: Optional[str] = None,
     classifier: Classifier = _DEFAULT_CLASSIFIER,
@@ -218,6 +255,8 @@ def lts_case_expression(
         highway_sql: Override the ``->>'highway'`` extraction. Use
             this when ``highway`` is a separate column.
         maxspeed_sql: Override the ``->>'maxspeed'`` extraction.
+        maxspeed_type_sql: Override the implicit-default lookup source.
+            Defaults to ``COALESCE(->>'maxspeed:type', ->>'source:maxspeed')``.
         lanes_sql: Override the ``->>'lanes'`` extraction.
         cycleway_kind_sql: Override the cycleway COALESCE entirely
             — useful when cycleway sub-tags are pre-resolved to a
@@ -233,11 +272,17 @@ def lts_case_expression(
     """
     h = highway_sql or f"({tags_jsonb})->>'highway'"
     m = maxspeed_sql or f"({tags_jsonb})->>'maxspeed'"
+    mt = maxspeed_type_sql or (
+        f"COALESCE(({tags_jsonb})->>'maxspeed:type', "
+        f"({tags_jsonb})->>'source:maxspeed')"
+    )
     ln = lanes_sql or f"({tags_jsonb})->>'lanes'"
     cw = cycleway_kind_sql or cycleway_kind_expression(
         tags_jsonb, classifier=classifier
     )
-    speed = speed_mph_expression(h, m, classifier=classifier)
+    speed = speed_mph_expression(
+        h, m, maxspeed_type_sql=mt, classifier=classifier
+    )
     lanes = lane_count_expression(h, ln, classifier=classifier)
     excluded = excluded_highways_in_list(classifier)
 

@@ -67,11 +67,31 @@ def test_speed_expression_extracts_leading_digits() -> None:
 
 def test_speed_expression_accepts_custom_inputs() -> None:
     out = speed_mph_expression(
-        highway_sql="pol.highway", maxspeed_sql="pol.maxspeed_text"
+        highway_sql="pol.highway",
+        maxspeed_sql="pol.maxspeed_text",
+        maxspeed_type_sql="pol.maxspeed_type",
     )
     assert "pol.highway" in out
     assert "pol.maxspeed_text" in out
+    assert "pol.maxspeed_type" in out
     assert "tags::jsonb" not in out
+
+
+def test_speed_expression_converts_metric_units() -> None:
+    """A km/h value is detected and scaled to mph before the ::int cast."""
+    out = speed_mph_expression()
+    assert "~* 'km/?h|kmh|kph'" in out
+    assert "0.621371" in out
+
+
+def test_speed_expression_resolves_implicit_maxspeed_type() -> None:
+    """``maxspeed:type`` zones map to their legal default, generic-folded."""
+    out = speed_mph_expression()
+    assert "regexp_replace(" in out
+    assert "WHEN 'US:urban' THEN 25" in out
+    # Defaults to maxspeed:type with a source:maxspeed fallback.
+    assert "->>'maxspeed:type'" in out
+    assert "->>'source:maxspeed'" in out
 
 
 # ---------------------------------------------------------------------------

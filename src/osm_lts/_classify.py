@@ -39,6 +39,16 @@ class LTS(IntEnum):
 
 
 _LEADING_DIGITS_RE = re.compile(r"\d+")
+# Detect a metric unit in a free-form maxspeed string ("50 km/h",
+# "50 kmh", "50 kph"). Anything else — bare numbers, "25 mph" — is read
+# as mph. The SQL emitter mirrors this with a ``~* 'km/?h|kmh|kph'`` test.
+_KMH_RE = re.compile(r"km/?h|kmh|kph", re.IGNORECASE)
+_KMH_TO_MPH = 0.621371
+# Normalize a country-qualified ``maxspeed:type`` zone to its country
+# generic: "US-CO:urban" -> "US:urban". Leaves an already-generic
+# "US:urban" (no state segment) unchanged. Mirrored in SQL by
+# ``regexp_replace(<type>, '^([A-Za-z]+)-[A-Za-z]+(:.+)$', '\1\2')``.
+_MAXSPEED_TYPE_RE = re.compile(r"^([A-Za-z]+)-[A-Za-z]+(:.+)$")
 # Rule-tier sets live in ``_constants`` so the SQL emitter can read
 # the same definitions — adding a new arterial type stays a one-
 # place edit. Aliased here for readability of the rule branches.
@@ -66,6 +76,51 @@ def _coerce_int(value: Optional[str]) -> Optional[int]:
         return None
     match = _LEADING_DIGITS_RE.search(str(value))
     return int(match.group()) if match else None
+
+
+def _coerce_speed_mph(value: Optional[str]) -> Optional[int]:
+    """Read an OSM ``maxspeed`` string as whole mph, else ``None``.
+
+    Unit-aware where :func:`_coerce_int` is not: an explicit metric unit
+    (``"50 km/h"``, ``"50 kmh"``, ``"50 kph"``) is converted to mph
+    (→ ``31``). A bare number or an ``mph`` value is read as mph
+    (``"25 mph"`` → ``25``, ``"30"`` → ``30``) — our data is US, where a
+    bare ``maxspeed`` is a posted mph value rather than the OSM-spec
+    km/h. Anything with no digits (``"none"``, ``"walk"``, ``"signals"``)
+    returns ``None`` so the caller falls back to a default.
+
+    Lanes keep using :func:`_coerce_int` — only speeds carry units.
+    The SQL emitter mirrors this with a ``~* 'km/?h|kmh|kph'`` test and a
+    ``* 0.621371`` conversion before the ``::int`` cast.
+    """
+    if value is None:
+        return None
+    s = str(value)
+    match = _LEADING_DIGITS_RE.search(s)
+    if match is None:
+        return None
+    mph = int(match.group())
+    if _KMH_RE.search(s):
+        mph = round(mph * _KMH_TO_MPH)
+    return mph
+
+
+def parse_maxspeed_mph(value: Optional[str]) -> Optional[int]:
+    """Parse an OSM ``maxspeed`` tag value to whole mph, or ``None``.
+
+    Public wrapper over the classifier's own ``maxspeed`` parse so ingest
+    and preprocessing code can share one implementation instead of
+    re-rolling a brittle ``strip("mph")`` parser that silently drops
+    metric values. ``"25 mph"`` → ``25``, ``"50 km/h"`` → ``31``, bare
+    ``"30"`` → ``30``, ``"none"`` / ``""`` / ``None`` → ``None``.
+    """
+    return _coerce_speed_mph(value)
+
+
+def _generic_maxspeed_type(value: str) -> str:
+    """``"US-CO:urban"`` → ``"US:urban"``; already-generic input unchanged."""
+    match = _MAXSPEED_TYPE_RE.match(value)
+    return f"{match.group(1)}{match.group(2)}" if match else value
 
 
 @dataclass(frozen=True)
@@ -118,6 +173,14 @@ class Classifier:
     )
     speed_mph_fallback: int = C.DEFAULT_SPEED_MPH_FALLBACK
 
+    # Implicit legal defaults keyed by ``maxspeed:type`` / ``source:maxspeed``
+    # zone (e.g. ``US:urban``). Consulted between an explicit numeric
+    # ``maxspeed`` and the per-highway guess. dict default needs a factory
+    # for the same reason ``speed_mph_by_highway`` does.
+    implicit_maxspeed_mph: Mapping[str, int] = field(
+        default_factory=lambda: dict(C.DEFAULT_IMPLICIT_MAXSPEED_MPH)
+    )
+
     lane_count_by_highway: Mapping[str, int] = field(
         default_factory=lambda: dict(C.DEFAULT_LANE_COUNT_BY_HIGHWAY)
     )
@@ -126,10 +189,34 @@ class Classifier:
     # Tuples are immutable; safe as a direct default.
     cycleway_tag_keys: tuple = C.CYCLEWAY_TAG_KEYS
 
-    def _resolve_speed_mph(self, highway: str, maxspeed: Optional[str]) -> int:
-        explicit = _coerce_int(maxspeed)
+    def _resolve_implicit_mph(
+        self, maxspeed_type: Optional[str]
+    ) -> Optional[int]:
+        """Legal default for a ``maxspeed:type`` zone, or ``None``.
+
+        Tries the value's country-generic form (``US-CO:urban`` →
+        ``US:urban``) against :attr:`implicit_maxspeed_mph`. Non-zone
+        ``source:maxspeed`` values (``"sign"``, ``"survey"``) miss the
+        table and return ``None``, so the caller falls through to the
+        per-highway default.
+        """
+        if not maxspeed_type:
+            return None
+        key = _generic_maxspeed_type(maxspeed_type.strip())
+        return self.implicit_maxspeed_mph.get(key)
+
+    def _resolve_speed_mph(
+        self,
+        highway: str,
+        maxspeed: Optional[str],
+        maxspeed_type: Optional[str] = None,
+    ) -> int:
+        explicit = _coerce_speed_mph(maxspeed)
         if explicit is not None:
             return explicit
+        implicit = self._resolve_implicit_mph(maxspeed_type)
+        if implicit is not None:
+            return implicit
         return self.speed_mph_by_highway.get(highway, self.speed_mph_fallback)
 
     def _resolve_lane_count(self, highway: str, lanes: Optional[str]) -> int:
@@ -159,7 +246,10 @@ class Classifier:
             return None
 
         cycleway_kind = self._resolve_cycleway_kind(tags)
-        speed_mph = self._resolve_speed_mph(highway, tags.get("maxspeed"))
+        maxspeed_type = tags.get("maxspeed:type") or tags.get("source:maxspeed")
+        speed_mph = self._resolve_speed_mph(
+            highway, tags.get("maxspeed"), maxspeed_type
+        )
         lane_count = self._resolve_lane_count(highway, tags.get("lanes"))
 
         # LTS 1 — separated paths, designated bike infrastructure,
