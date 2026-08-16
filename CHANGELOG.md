@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.1 — 2026-08-16
+
+- Fix: `highway=track` now classifies as LTS 1 instead of falling
+  through to the LTS 3 catch-all. A track is an agricultural /
+  forestry access way: motor vehicles are legally permitted, but
+  there is no *through* traffic to be stressed by, which puts it
+  with `highway=path` rather than with collectors. The rule is
+  unconditional like the `path` rule — no `tracktype` or `surface`
+  qualifier, since LTS scores traffic stress and not ride quality.
+  Real-world case: Pittsburgh's Bridle Trail in Schenley Park
+  (https://www.openstreetmap.org/way/27611425), a `tracktype=grade2`
+  park trail that painted as experienced-riders-only.
+- The SQL `lts_case_expression` gains the matching
+  `WHEN <highway> = 'track' THEN 1` branch. Note the CASE now holds
+  two `'track'` literals with different meanings — `highway=track`
+  and `cycleway=track` — and both are commented inline.
+- Docs: README records the missing "no surface or ride-quality
+  signal" limitation that the `path` rule (0.4.2) and now the `track`
+  rule both trade away.
+
 ## 0.5.0 — 2026-06-15
 
 - Feature: `maxspeed` parsing is now **unit-aware**. A metric value

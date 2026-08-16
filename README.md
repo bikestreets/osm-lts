@@ -64,7 +64,7 @@ The classifier mirrors Furth's published rules:
 
 | Tier  | Description                  | Example triggers                                                |
 | :---: | ---------------------------- | --------------------------------------------------------------- |
-| LTS 1 | Suitable for children        | `highway=cycleway`, `living_street`, `cycleway=track`           |
+| LTS 1 | Suitable for children        | `highway=cycleway` / `path` / `track`, `living_street`, `cycleway=track` |
 | LTS 2 | Most adults will tolerate    | `residential` ≤25 mph, bike lane on a slow street               |
 | LTS 3 | Experienced cyclists only    | `tertiary`, fast residential, bike lane on a faster street      |
 | LTS 4 | Strong-and-fearless only     | `primary` / `trunk`, `>35 mph`, `≥3 lanes` and `>30 mph`        |
@@ -100,6 +100,13 @@ a network LTS analysis, but it's not the whole methodology:
   and sidewalk separation aren't read from neighboring ways. A
   bike lane next to a parking lane is scored the same as one
   without.
+- **No surface or ride-quality signal.** `highway=path` and
+  `highway=track` promote to LTS 1 on the highway tag alone, so a
+  `tracktype=grade5` dirt rut scores the same as a paved trail. LTS
+  measures *traffic* stress; a tool that also cares about whether a
+  way is rideable should read `surface` / `tracktype` itself. The
+  trade-off is over-claim on hiking singletrack tagged `highway=path`
+  and on muddy farm tracks.
 - **No network-level analysis.** The output is a per-way score,
   not "low-stress islands" or connectivity. Building a routing
   or coverage tool means doing that analysis on top of the

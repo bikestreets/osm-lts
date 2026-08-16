@@ -306,8 +306,9 @@ def lts_case_expression(
     -- LTS 1: separated, designated, slow-by-design
     WHEN {h} = 'cycleway' THEN 1
     WHEN {h} = 'path' THEN 1
+    WHEN {h} = 'track' THEN 1          -- highway=track: farm/forest access
     WHEN {h} = 'living_street' THEN 1
-    WHEN ({cw}) = 'track' THEN 1
+    WHEN ({cw}) = 'track' THEN 1       -- cycleway=track: separated alongside a road
 
     -- LTS 4: high-speed / arterial / multi-lane
     WHEN ({speed}) > 35 THEN 4

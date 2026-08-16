@@ -228,6 +228,23 @@ def test_lts_case_path_promotes_to_lts1_unconditionally() -> None:
     assert "= 'path' AND" not in out
 
 
+def test_lts_case_highway_track_promotes_to_lts1() -> None:
+    """``highway=track`` promotes to LTS 1, mirroring the Python rule.
+
+    The CASE now contains two ``'track'`` literals that mean different
+    things — ``highway=track`` (farm/forest access) and
+    ``cycleway=track`` (a separated cycle track alongside a road). The
+    highway branch is keyed off ``highway_sql``, so pin the assertion
+    to that expression rather than to a bare ``'track'`` match, which
+    the cycleway branch would satisfy on its own.
+    """
+    out = lts_case_expression(highway_sql="pol.highway")
+    assert "pol.highway = 'track' THEN 1" in out
+    # The cycleway branch is still there and still distinct.
+    assert "'cycleway'" in out
+    assert out.count("= 'track' THEN 1") == 2
+
+
 # ---------------------------------------------------------------------------
 # Sanity: SQL emitter and Python classifier read the SAME defaults
 # ---------------------------------------------------------------------------

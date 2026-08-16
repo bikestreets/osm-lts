@@ -261,6 +261,16 @@ class Classifier:
             return LTS.KID_COMFORTABLE
         if highway == "path":
             return LTS.KID_COMFORTABLE
+        # A ``track`` is an agricultural / forestry access way. Motor
+        # vehicles are legally permitted, but there is no *through*
+        # traffic to be stressed by — which is what LTS measures — so
+        # tracks belong with ``path`` rather than in the LTS 3 catch-
+        # all they used to fall through to. Unconditional, like
+        # ``path``: no ``tracktype`` or ``surface`` qualifier, because
+        # Furth scores traffic stress and not ride quality (see README
+        # "Scope and limitations").
+        if highway == "track":
+            return LTS.KID_COMFORTABLE
         if highway == "living_street":
             return LTS.KID_COMFORTABLE
         if cycleway_kind == "track":
@@ -334,6 +344,8 @@ def classify(tags: Mapping[str, str]) -> Optional[LTS]:
 
     Examples:
         >>> classify({"highway": "cycleway"})
+        <LTS.KID_COMFORTABLE: 1>
+        >>> classify({"highway": "track", "tracktype": "grade2"})
         <LTS.KID_COMFORTABLE: 1>
         >>> classify({"highway": "residential", "maxspeed": "25 mph"})
         <LTS.MOST_ADULTS: 2>

@@ -22,6 +22,11 @@ from osm_lts import LTS, classify
         ({"highway": "path"}, LTS.KID_COMFORTABLE),
         ({"highway": "path", "bicycle": "designated"}, LTS.KID_COMFORTABLE),
         ({"highway": "path", "bicycle": "yes"}, LTS.KID_COMFORTABLE),
+        ({"highway": "track"}, LTS.KID_COMFORTABLE),
+        (
+            {"highway": "track", "tracktype": "grade5", "surface": "dirt"},
+            LTS.KID_COMFORTABLE,
+        ),
         ({"highway": "living_street"}, LTS.KID_COMFORTABLE),
         (
             {"highway": "residential", "cycleway": "track"},
@@ -241,6 +246,28 @@ def test_paved_shared_use_path_is_lts1() -> None:
         "highway": "path",
         "segregated": "no",
         "surface": "concrete",
+    }
+    assert classify(tags) == LTS.KID_COMFORTABLE
+
+
+def test_gravel_track_is_lts1() -> None:
+    """A ``highway=track`` is LTS 1 — no motor through-traffic to be
+    stressed by — and the unpaved ``surface`` / ``tracktype`` do not
+    demote it, since LTS scores traffic stress and not ride quality.
+
+    Tag profile from the Bridle Trail in Pittsburgh's Schenley Park,
+    https://www.openstreetmap.org/way/27611425 — a real-world park
+    trail. Before the ``track`` rule existed this profile fell through
+    to the LTS 3 catch-all and painted a calm park trail as
+    experienced-riders-only.
+    """
+    tags = {
+        "bicycle": "yes",
+        "foot": "yes",
+        "highway": "track",
+        "name": "Bridle Trail",
+        "surface": "gravel",
+        "tracktype": "grade2",
     }
     assert classify(tags) == LTS.KID_COMFORTABLE
 
