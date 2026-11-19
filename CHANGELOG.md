@@ -36,6 +36,9 @@
   `Classifier._resolve_speed_mph` / `_resolve_lane_count` (they remain, as
   wrappers). A subclass overriding them should override
   `_resolve_speed_with_source` / `_resolve_lanes_with_source` instead.
+- **Requires Python 3.10+.** Python 3.9 reached end of life in October
+  2025 and is no longer tested (GitHub's current Ubuntu runners don't ship
+  it). Python 3.14 is now tested and listed.
 - `Rule` and `Source` format as their values (`str(rule)`, `f"{rule}"` give
   `"path"`) on every Python version.
 

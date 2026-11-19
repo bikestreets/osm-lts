@@ -20,7 +20,7 @@ on a calm street or a six-lane arterial.
 pip install osm-lts
 ```
 
-Pure Python, no dependencies, Python 3.9+.
+Pure Python, no dependencies, Python 3.10+.
 
 ## Use
 
