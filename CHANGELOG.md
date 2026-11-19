@@ -1,6 +1,47 @@
 # Changelog
 
-## 0.6.0 — unreleased
+## 0.7.0 — unreleased
+
+- Feature: **street crossings.** `crossing_lts(lanes, speed_mph, refuge=,
+  signalized=)` rates crossing a street by Furth's LTS criteria, Table 6
+  ("Criteria for Unsignalized Crossings"), transcribed cell by cell: LTS 1
+  at a signal; otherwise by the lanes crossed and the speed, with Table 6a
+  (no crossing island) or 6b (with one). Both live in `rules.md`, public as
+  `UNSIGNALIZED_CROSSINGS` / `REFUGE_CROSSINGS`. `is_crossing(tags)`
+  recognises a crossing way (`footway=crossing` and the like, or a
+  `crossing=*` tag other than `no`), and `is_signalized` / `has_refuge`
+  read a crossing way's or node's signal and island tags (including
+  `crossing_ref=toucan` and similar signalled crossings), all from tables in
+  `rules.md`. Furth's speed bands are in mph, so a metric speed lands in the
+  band its rounded mph value falls in (50 km/h is 31 mph: the 35 mph band). A
+  divided road is one crossing of both carriageways' lanes, with
+  `refuge=True`.
+- Feature: `Classifier.resolve_speed`, `resolve_lanes` and
+  `resolve_cycleway` return a way's inputs as the rules read them (with
+  their `Source`), always — for a way the rules didn't need them for, such
+  as a street being crossed. Callers no longer need private helpers.
+- **Rating changes (Furth fidelity), Python and SQL alike:**
+  - Shared-lane markings are mixed traffic. `cycleway=shared_lane`
+    ("sharrows") no longer counts as a bike lane: Furth's criteria say
+    sharrows "are not assumed to have any effect on traffic stress". A way
+    with sharrows is rated by the rule it would get without them: a
+    collector or `highway=road` at 25 mph goes from LTS 2 to 3, and a
+    service way from 2 or 3 to the service-way rule's LTS 1. Residential and
+    unclassified streets at 25 mph or less are LTS 2 either way.
+    `opposite_lane` (a contraflow lane) still counts.
+  - The bike facility is read from the first `cycleway*` key whose value is
+    a facility the rules test, so `cycleway=no` or sharrows on one key no
+    longer hide a lane or track on another (`cycleway:right=shared_lane` +
+    `cycleway:left=lane` is a bike lane). SQL callers that pass a
+    pre-resolved `cycleway_kind_sql` column must pick it the same way.
+  - `cycleway=opposite_track` (a contraflow separated track) is a separated
+    bike track, LTS 1, like `track`.
+
+  In a 60,000-way US sample, 26 ways change rating, all because of
+  sharrows; the sample has no `opposite_track` or masked-lane ways, which
+  change elsewhere. Invalidate cached results.
+
+## 0.6.0 — 2026-11-19
 
 - Feature: **`explain(tags)`** (and `Classifier.explain`) returns an
   `Explanation`: the LTS, the `Rule` that decided it, and the inputs that
