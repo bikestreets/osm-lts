@@ -32,6 +32,12 @@ COMPARISONS: Dict[str, Tuple[Callable[[int, int], bool], str]] = {
 }
 
 
+class _Rows(list):
+    """A table's rows, keeping its header (checked even with no rows)."""
+
+    header: Tuple[str, ...] = ()
+
+
 class RulesFileError(ValueError):
     """``rules.md`` is malformed. The message says where."""
 
@@ -71,6 +77,21 @@ class RuleRow:
 
 
 @dataclass(frozen=True)
+class CrossingRow:
+    """One row of a crossing table: ``lanes`` / ``speed_mph`` (``None`` =
+    not checked) give ``lts``."""
+
+    lanes: Optional[Comparison]
+    speed_mph: Optional[Comparison]
+    lts: int
+
+    def matches(self, lanes: int, speed_mph: int) -> bool:
+        return (self.lanes is None or self.lanes.test(lanes)) and (
+            self.speed_mph is None or self.speed_mph.test(speed_mph)
+        )
+
+
+@dataclass(frozen=True)
 class Definition:
     level_descriptions: Dict[int, str]
     rules: Tuple[RuleRow, ...]
@@ -81,6 +102,13 @@ class Definition:
     lane_count_by_highway: Dict[str, int]
     lane_count_fallback: int
     cycleway_tag_keys: Tuple[str, ...]
+    crossing_highways: FrozenSet[str]
+    crossing_keys: Tuple[str, ...]
+    unsignalized_crossings: Tuple[CrossingRow, ...]
+    refuge_crossings: Tuple[CrossingRow, ...]
+    crossing_marker_keys: Tuple[str, ...]
+    crossing_signal_tags: Tuple[Tuple[str, str], ...]
+    crossing_refuge_tags: Tuple[Tuple[str, str], ...]
 
 
 def _split_row(line: str) -> List[str]:
@@ -114,7 +142,8 @@ def parse_tables(text: str) -> Dict[str, List[Dict[str, str]]]:
         ):
             raise RulesFileError(f"table {name!r}: second line isn't a separator row")
         i += 2
-        rows = []
+        rows = _Rows()
+        rows.header = tuple(header)
         while i < len(lines) and lines[i].strip().startswith("|"):
             cells = _split_row(lines[i])
             if len(cells) != len(header):
@@ -124,8 +153,6 @@ def parse_tables(text: str) -> Dict[str, List[Dict[str, str]]]:
                 )
             rows.append(dict(zip(header, cells)))
             i += 1
-        if not rows:
-            raise RulesFileError(f"table {name!r} has no rows")
         tables[name] = rows
     return tables
 
@@ -134,9 +161,11 @@ def _require(tables, name: str, columns: Tuple[str, ...]) -> List[Dict[str, str]
     if name not in tables:
         raise RulesFileError(f"missing table {name!r}")
     rows = tables[name]
-    missing = [c for c in columns if c not in rows[0]]
+    missing = [c for c in columns if c not in rows.header]
     if missing:
         raise RulesFileError(f"table {name!r} is missing columns {missing}")
+    if not rows:
+        raise RulesFileError(f"table {name!r} has no rows")
     return rows
 
 
@@ -193,6 +222,37 @@ def _column(tables, name: str, column: str) -> List[str]:
     if len(set(values)) != len(values):
         raise RulesFileError(f"table {name!r} lists a value twice")
     return values
+
+
+def _crossing_rows(tables, name: str) -> Tuple[CrossingRow, ...]:
+    rows = []
+    for row in _require(tables, name, ("lanes", "speed (mph)", "LTS")):
+        try:
+            if not re.fullmatch(r"\d+", row["LTS"]):
+                raise RulesFileError(f"LTS {row['LTS']!r} isn't a whole number")
+            lts = int(row["LTS"])
+            if not 1 <= lts <= 4:
+                raise RulesFileError(f"LTS must be 1-4, not {lts}")
+            rows.append(
+                CrossingRow(
+                    lanes=_comparison(row["lanes"]),
+                    speed_mph=_comparison(row["speed (mph)"]),
+                    lts=lts,
+                )
+            )
+        except RulesFileError as error:
+            raise RulesFileError(
+                f"table {name!r}, row {len(rows) + 1}: {error}"
+            ) from None
+    return tuple(rows)
+
+
+def _pairs(tables, name: str) -> Tuple[Tuple[str, str], ...]:
+    rows = _require(tables, name, ("key", "value"))
+    pairs = tuple((row["key"], row["value"]) for row in rows)
+    if not all(k and v for k, v in pairs) or len(set(pairs)) != len(pairs):
+        raise RulesFileError(f"table {name!r}: empty or repeated key/value")
+    return pairs
 
 
 def parse_definition(text: str) -> Definition:
@@ -252,6 +312,18 @@ def parse_definition(text: str) -> Definition:
     if sorted(levels) != [1, 2, 3, 4]:
         raise RulesFileError("levels table must describe LTS 1, 2, 3 and 4")
 
+    unsignalized = _crossing_rows(tables, "unsignalized_crossings")
+    refuge = _crossing_rows(tables, "refuge_crossings")
+    for name, rows in (("unsignalized_crossings", unsignalized), ("refuge_crossings", refuge)):
+        last = rows[-1]
+        if last.lanes is not None or last.speed_mph is not None or any(
+            row.lanes is None and row.speed_mph is None for row in rows[:-1]
+        ):
+            raise RulesFileError(
+                f"{name} table: exactly one row, the last, must have no "
+                "conditions (so every crossing is rated)"
+            )
+
     return Definition(
         level_descriptions=levels,
         rules=tuple(rules),
@@ -262,6 +334,15 @@ def parse_definition(text: str) -> Definition:
         lane_count_by_highway=lanes,
         lane_count_fallback=lane_fallback,
         cycleway_tag_keys=tuple(_column(tables, "cycleway_keys", "key")),
+        crossing_highways=frozenset(
+            _column(tables, "crossing_highways", "highway")
+        ),
+        crossing_keys=tuple(_column(tables, "crossing_keys", "key")),
+        unsignalized_crossings=unsignalized,
+        refuge_crossings=refuge,
+        crossing_marker_keys=tuple(_column(tables, "crossing_marker_keys", "key")),
+        crossing_signal_tags=_pairs(tables, "crossing_signal_tags"),
+        crossing_refuge_tags=_pairs(tables, "crossing_refuge_tags"),
     )
 
 

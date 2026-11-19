@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Tuple
 
 from . import _constants as C
 from ._rules import DEFINITION as _D
@@ -139,6 +139,10 @@ _ROWS = tuple(
         None if row.lanes is None else row.lanes.compiled(),
     )
     for row in _D.rules
+)
+# Every cycleway value a rule tests: the bike facilities the rules know.
+FACILITY_KINDS = frozenset(
+    kind for row in _D.rules if row.cycleway is not None for kind in row.cycleway
 )
 _RULE_DESCRIPTIONS = {
     **_OUT_OF_SCOPE_DESCRIPTIONS,
@@ -343,7 +347,7 @@ class Classifier:
     def _resolve_cycleway_kind(
         self, tags: Mapping[str, str]
     ) -> Optional[str]:
-        """First non-empty cycleway* value, in :attr:`cycleway_tag_keys` order.
+        """The value :meth:`resolve_cycleway` reports.
 
         Kept for callers of earlier releases; :meth:`explain` reports the
         same value as ``cycleway_kind``.
@@ -377,6 +381,46 @@ class Classifier:
         if highway in self.lane_count_by_highway:
             return self.lane_count_by_highway[highway], Source.HIGHWAY_DEFAULT
         return self.lane_count_fallback, Source.FALLBACK
+
+    def resolve_speed(self, tags: Mapping[str, str]) -> Tuple[int, Source]:
+        """A way's speed (mph), as the rules read it, and where it came from.
+
+        The tagged ``maxspeed``, else a legal default its ``maxspeed:type`` /
+        ``source:maxspeed`` names, else this classifier's default for its
+        highway type. Unlike :meth:`explain`, always resolves: for callers
+        that need the speed of a way the rules didn't have to read it for
+        (e.g. a street being crossed, see :func:`osm_lts.crossing_lts`).
+
+        >>> Classifier().resolve_speed({"highway": "tertiary"})[0]
+        30
+        """
+        return self._resolve_speed_with_source(
+            tags.get("highway") or "",
+            tags.get("maxspeed"),
+            tags.get("maxspeed:type") or tags.get("source:maxspeed"),
+        )
+
+    def resolve_lanes(self, tags: Mapping[str, str]) -> Tuple[int, Source]:
+        """A way's lane count, as the rules read it, and where it came from.
+
+        >>> Classifier().resolve_lanes({"highway": "primary"})[0]
+        4
+        """
+        return self._resolve_lanes_with_source(
+            tags.get("highway") or "", tags.get("lanes")
+        )
+
+    def resolve_cycleway(
+        self, tags: Mapping[str, str]
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """``(key, value)`` of the way's bike facility: the first of
+        :attr:`cycleway_tag_keys` whose value is a facility the rules test,
+        else the first one set, else ``(None, None)``.
+
+        >>> Classifier().resolve_cycleway({"cycleway:right": "lane"})
+        ('cycleway:right', 'lane')
+        """
+        return self._cycleway(tags)
 
     def explain(self, tags: Mapping[str, str]) -> Explanation:
         """Classify ``tags`` and say why.
@@ -414,12 +458,23 @@ class Classifier:
         )
 
     def _cycleway(self, tags: Mapping[str, str]) -> tuple:
-        """``(key, value)`` of the first set ``cycleway*`` key, else ``(None, None)``."""
+        """``(key, value)`` of the way's bike facility, else ``(None, None)``.
+
+        The first of :attr:`cycleway_tag_keys` whose value is a facility
+        the rules know (:data:`FACILITY_KINDS`: ``cycleway=no`` or
+        sharrows on one key don't hide a lane on another); failing that,
+        the first key set at all, so its value is still reported.
+        """
+        first = None
         for key in self.cycleway_tag_keys:
             value = tags.get(key)
-            if value:
+            if not value:
+                continue
+            if value in FACILITY_KINDS:
                 return key, value
-        return None, None
+            if first is None:
+                first = (key, value)
+        return first or (None, None)
 
     def _walk(self, tags: Mapping[str, str]) -> tuple:
         """Walk the rules table in rules.md, top to bottom; first match wins.

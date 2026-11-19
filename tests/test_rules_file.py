@@ -88,3 +88,18 @@ def _broken(old: str, new: str) -> str:
 def test_malformed_files_are_rejected_with_a_reason(text: str, message: str) -> None:
     with pytest.raises(RulesFileError, match=message):
         parse_definition(text)
+
+
+def test_crossing_tables_are_validated() -> None:
+    with pytest.raises(RulesFileError, match="unsignalized_crossings"):
+        parse_definition(
+            _broken("|       |             |  4  |\n", "|       | > 1         |  4  |\n")
+        )
+
+
+def test_an_empty_table_is_rejected() -> None:
+    text = _broken(
+        "| key      |\n| -------- |\n| crossing |\n", "| key      |\n| -------- |\n"
+    )
+    with pytest.raises(RulesFileError, match="has no rows"):
+        parse_definition(text)

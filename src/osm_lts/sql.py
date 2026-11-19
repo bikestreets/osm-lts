@@ -64,7 +64,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ._rules import DEFINITION as _D
-from ._classify import _KMH_TO_MPH, Classifier, _DEFAULT_CLASSIFIER
+from ._classify import _KMH_TO_MPH, FACILITY_KINDS, Classifier, _DEFAULT_CLASSIFIER
 
 RULE_ROWS = _D.rules
 
@@ -223,20 +223,30 @@ def cycleway_kind_expression(
     *,
     classifier: Classifier = _DEFAULT_CLASSIFIER,
 ) -> str:
-    """COALESCE of cycleway/cycleway:right/etc. in the classifier's priority order.
+    """The way's bike facility, as the Python classifier picks it.
+
+    The first of ``classifier.cycleway_tag_keys`` whose value is a facility
+    the rules test, else the first one set.
 
     The priority order comes straight from
     ``classifier.cycleway_tag_keys``; reordering or extending that
     tuple changes which sub-tag wins for a way that carries multiple
     cycleway variants.
     """
-    # NULLIF: an empty value doesn't count as set, as in the Python
-    # classifier, so a later key can still supply the facility.
-    args = ",\n    ".join(
+    # As the Python classifier: the first key whose value is a facility the
+    # rules know (so `no` or sharrows on one key don't hide a lane on
+    # another), else the first key set at all (NULLIF: empty isn't set).
+    facilities = _quote_in(FACILITY_KINDS)
+    known = ",\n    ".join(
+        f"CASE WHEN ({tags_jsonb})->>{_quote(key)} IN ({facilities}) "
+        f"THEN ({tags_jsonb})->>{_quote(key)} END"
+        for key in classifier.cycleway_tag_keys
+    )
+    first = ",\n    ".join(
         f"NULLIF(({tags_jsonb})->>{_quote(key)}, '')"
         for key in classifier.cycleway_tag_keys
     )
-    return f"COALESCE(\n    {args}\n)"
+    return f"COALESCE(\n    {known},\n    {first}\n)"
 
 
 def lts_case_expression(
@@ -284,8 +294,10 @@ def lts_case_expression(
         lanes_sql: Override the ``->>'lanes'`` extraction.
         cycleway_kind_sql: Override the cycleway COALESCE entirely
             — useful when cycleway sub-tags are pre-resolved to a
-            single column. Map empty values to NULL (``NULLIF(x, '')``)
-            so an empty key doesn't hide a later one, as in Python.
+            single column. It must pick the facility as the Python
+            classifier does: the first key whose value is one the rules
+            test (``lane``, ``opposite_lane``, ``track``,
+            ``opposite_track``), else the first non-empty one.
         classifier: :class:`Classifier` instance whose
             speed/lane/exclusion/cycleway-key fields control the
             emitted defaults.

@@ -242,7 +242,8 @@ def test_lts_case_highway_track_promotes_to_lts1() -> None:
     assert "pol.highway = 'track' THEN 1" in out
     # The cycleway branch is still there and still distinct.
     assert "'cycleway'" in out
-    assert out.count("= 'track' THEN 1") == 2
+    assert out.count("= 'track' THEN 1") == 1
+    assert "IN ('opposite_track', 'track') THEN 1" in out
 
 
 # ---------------------------------------------------------------------------

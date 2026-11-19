@@ -116,15 +116,51 @@ from osm_lts import (
 )
 ```
 
+### Crossings
+
+Furth's method also rates **crossing** a street, separately from riding along
+it. `crossing_lts` rates one crossing from the crossed street's lanes and
+speed; a signal makes it LTS 1, and a crossing island (median refuge) uses
+Furth's island table. The tables (Furth's LTS criteria, Table 6) are in
+`rules.md`.
+
+```python
+from osm_lts import Classifier, crossing_lts, has_refuge, is_crossing, is_signalized
+
+street = {"highway": "secondary", "lanes": "4", "maxspeed": "35 mph"}
+clf = Classifier()
+lanes, _ = clf.resolve_lanes(street)
+mph, _ = clf.resolve_speed(street)
+crossing_lts(lanes, mph)                # <LTS.EXPERIENCED_ONLY: 3>
+crossing_lts(lanes, 25, refuge=True)    # <LTS.KID_COMFORTABLE: 1>
+
+is_crossing({"highway": "footway", "footway": "crossing"})  # True
+is_signalized({"crossing": "traffic_signals"})               # True
+has_refuge({"crossing:island": "yes"})                        # True
+```
+
+Finding which streets a route crosses needs the way network, so it's left to
+the caller: check the crossing way and the nodes on it with `is_signalized` /
+`has_refuge`, and rate each crossed street. A divided road mapped as two
+one-way carriageways is one crossing: pass both carriageways' lanes together,
+with `refuge=True` for the median. A way with no `lanes` tag gets its highway
+type's default, which counts both directions, so an untagged one-way
+carriageway reads wider than it is. Pass `resolve_lanes` / `resolve_speed`
+values, not `explain()`'s (which are `None` when no rule read them).
+`Classifier.resolve_speed` / `resolve_lanes` / `resolve_cycleway` resolve a
+way's inputs exactly as the rules do, for a way the rules didn't need them for
+(like a street being crossed).
+
 ### Scope and limitations
 
 The classifier treats each OSM way in isolation — it reads that
 way's tags and returns a tier. That's the foundational input to
 a network LTS analysis, but it's not the whole methodology:
 
-- **No intersection effects.** A calm residential that crosses a
-  hostile arterial is still LTS 2 here; full Furth would penalize
-  the unsignalized crossing.
+- **No intersection effects in `classify`.** A calm residential that
+  crosses a hostile arterial is still LTS 2 here. `crossing_lts` rates
+  the crossing itself, but finding a route's crossings is up to the
+  caller.
 - **No adjacent-way context.** Parking presence, buffer width,
   and sidewalk separation aren't read from neighboring ways. A
   bike lane next to a parking lane is scored the same as one
@@ -269,6 +305,11 @@ sql = f"""
     FROM ways_with_resolved_cycleway
 """
 ```
+
+The column must pick the facility as the classifier does: the first key whose
+value is `lane`, `opposite_lane` or `track` (the values the rules test), else
+the first key set. Collapsing to "the first key set" makes `cycleway=no` +
+`cycleway:right=lane` lose its lane and rate differently from Python.
 
 **6. Pre-filtering at the source** — for tile servers and other hot
 paths, drop excluded highways at the row source so the CASE never sees

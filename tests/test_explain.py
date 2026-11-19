@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from osm_lts import (
+    CYCLEWAY_TAG_KEYS,
     LTS,
     Classifier,
     Explanation,
@@ -218,3 +219,80 @@ def test_private_cycleway_resolver_is_kept_for_earlier_callers() -> None:
     clf = Classifier()
     assert clf._resolve_cycleway_kind({"cycleway:left": "lane"}) == "lane"
     assert clf._resolve_cycleway_kind({"cycleway": ""}) is None
+
+
+def test_shared_lane_markings_are_mixed_traffic() -> None:
+    # Sharrows aren't a bike lane in Furth's method: a 25 mph collector with
+    # them is rated as mixed traffic, like one without.
+    sharrows = {"highway": "tertiary", "cycleway": "shared_lane", "maxspeed": "25"}
+    assert explain(sharrows).rule == Rule.COLLECTOR
+    assert explain(sharrows).lts == LTS.EXPERIENCED_ONLY
+    # A calm residential street is LTS 2 by its own rule either way.
+    calm = {"highway": "residential", "cycleway": "shared_lane", "maxspeed": "25"}
+    assert explain(calm).rule == Rule.SLOW_RESIDENTIAL
+    # A contraflow lane is a lane.
+    contra = {"highway": "tertiary", "cycleway": "opposite_lane", "maxspeed": "25"}
+    assert explain(contra).rule == Rule.BIKE_LANE_SLOW
+
+
+def test_sql_rates_shared_lane_markings_as_mixed_traffic() -> None:
+    sql = lts_case_expression()
+    branch = sql[sql.index("-- bike_lane_slow"):sql.index("-- slow_residential")]
+    assert "'lane'" in branch and "'opposite_lane'" in branch
+    assert "shared_lane" not in branch
+
+
+@pytest.mark.parametrize(
+    "tags, key, kind, rule",
+    [
+        # `no` or sharrows on an earlier key don't hide a later key's lane.
+        (
+            {"highway": "tertiary", "maxspeed": "25", "cycleway": "no", "cycleway:right": "lane"},
+            "cycleway:right",
+            "lane",
+            Rule.BIKE_LANE_SLOW,
+        ),
+        (
+            {
+                "highway": "tertiary",
+                "maxspeed": "25",
+                "cycleway:right": "shared_lane",
+                "cycleway:left": "lane",
+            },
+            "cycleway:left",
+            "lane",
+            Rule.BIKE_LANE_SLOW,
+        ),
+        # With no facility anywhere, the first value set is still reported.
+        (
+            {"highway": "tertiary", "maxspeed": "25", "cycleway": "no"},
+            "cycleway",
+            "no",
+            Rule.COLLECTOR,
+        ),
+        # Two facilities: the first key wins, as before.
+        (
+            {
+                "highway": "tertiary",
+                "maxspeed": "25",
+                "cycleway:right": "lane",
+                "cycleway:left": "track",
+            },
+            "cycleway:right",
+            "lane",
+            Rule.BIKE_LANE_SLOW,
+        ),
+    ],
+)
+def test_the_facility_is_the_first_key_with_one(tags, key, kind, rule) -> None:
+    e = explain(tags)
+    assert (e.cycleway_key, e.cycleway_kind, e.rule) == (key, kind, rule)
+    # The SQL picks the same key: every known-facility term, in key order,
+    # before any first-set term.
+    from osm_lts.sql import cycleway_kind_expression
+
+    sql = cycleway_kind_expression()
+    known = [sql.index(f"CASE WHEN (tags::jsonb)->>'{k}' IN (") for k in CYCLEWAY_TAG_KEYS]
+    first = [sql.index(f"NULLIF((tags::jsonb)->>'{k}', '')") for k in CYCLEWAY_TAG_KEYS]
+    assert known == sorted(known) and first == sorted(first)
+    assert max(known) < min(first)
