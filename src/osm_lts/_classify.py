@@ -3,15 +3,18 @@
 Reference: peterfurth.sites.northeastern.edu/level-of-traffic-stress/
 
 The classification is a four-tier scale from "kid-comfortable" (1) to
-"strong-and-fearless only" (4). The branches below evaluate top-to-
-bottom; the first match wins. Order matters — separation (a
-``cycleway=track``) short-circuits before any speed/lane bump can
-push the way up to LTS 4.
+"strong-and-fearless only" (4). The rules live in ``rules.md`` beside
+this module (loaded by ``_rules``); :meth:`Classifier.explain` walks
+that table top to bottom and the first match wins. Order matters —
+separation (a ``cycleway=track``) is checked before any speed/lane rule
+can push the way up to LTS 4.
 
-Two entry points:
+Entry points:
 
 * :func:`classify` — module-level function using the default rules.
   Equivalent to ``Classifier().classify(tags)``.
+* :func:`explain` — the same, plus the rule that decided and the inputs
+  it read.
 * :class:`Classifier` — frozen dataclass with overridable defaults
   (excluded highways, speed/lane fallbacks, cycleway sub-tag order).
   Construct one when you need to model a city or country whose
@@ -23,10 +26,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import Enum, IntEnum
 from typing import Mapping, Optional
 
 from . import _constants as C
+from ._rules import DEFINITION as _D
 
 
 class LTS(IntEnum):
@@ -36,6 +40,132 @@ class LTS(IntEnum):
     MOST_ADULTS = 2
     EXPERIENCED_ONLY = 3
     STRONG_AND_FEARLESS = 4
+
+    @property
+    def description(self) -> str:
+        """Who the level suits, in Furth's terms.
+
+        >>> LTS.MOST_ADULTS.description
+        'Tolerable for most adults'
+        """
+        return _LTS_DESCRIPTIONS[self]
+
+
+# From the levels table in rules.md.
+_LTS_DESCRIPTIONS = {LTS(n): text for n, text in _D.level_descriptions.items()}
+
+
+class Source(str, Enum):
+    """Where a resolved input (speed, lane count) came from."""
+
+    TAGGED = "tagged"
+    """Read from the way's own tag (``maxspeed``, ``lanes``)."""
+    LEGAL_DEFAULT = "legal_default"
+    """A statutory default named by ``maxspeed:type`` / ``source:maxspeed``."""
+    HIGHWAY_DEFAULT = "highway_default"
+    """The classifier's typical value for the ``highway`` class."""
+    FALLBACK = "fallback"
+    """The classifier's value for a ``highway`` class it has no default for."""
+
+    # ``str()`` and f-strings give the value on every Python version (3.12
+    # changed a str-mixin Enum's ``str()`` to ``'Source.TAGGED'``).
+    def __str__(self) -> str:
+        return self.value
+
+    def __format__(self, spec: str) -> str:
+        return format(self.value, spec)
+
+
+
+class Rule(str, Enum):
+    """The rule that decided a way's classification, in evaluation order.
+
+    Values are stable identifiers, safe to store or compare. Each
+    member's :attr:`description` says what the rule tests.
+    """
+
+    NO_HIGHWAY = "no_highway"
+    EXCLUDED_HIGHWAY = "excluded_highway"
+    CYCLEWAY = "cycleway"
+    PATH = "path"
+    TRACK = "track"
+    LIVING_STREET = "living_street"
+    SEPARATED_BIKE_TRACK = "separated_bike_track"
+    SPEED_OVER_35 = "speed_over_35"
+    ARTERIAL = "arterial"
+    MULTILANE_OVER_30 = "multilane_over_30"
+    BIKE_LANE_SLOW = "bike_lane_slow"
+    SLOW_RESIDENTIAL = "slow_residential"
+    BIKE_LANE_FASTER = "bike_lane_faster"
+    COLLECTOR = "collector"
+    SERVICE = "service"
+    OTHER_HIGHWAY = "other_highway"
+
+    # As for :class:`Source`: ``str()`` / f-strings give the stable value.
+    def __str__(self) -> str:
+        return self.value
+
+    def __format__(self, spec: str) -> str:
+        return format(self.value, spec)
+
+    @property
+    def description(self) -> str:
+        """What the rule tests, in plain language."""
+        return _RULE_DESCRIPTIONS[self]
+
+
+# The rules table in rules.md drives classification; these members are its
+# stable public names. The table and the enum must list the same rules in
+# the same order (after the two out-of-scope outcomes, which aren't rows).
+_OUT_OF_SCOPE_DESCRIPTIONS = {
+    Rule.NO_HIGHWAY: "No highway tag; out of scope",
+    Rule.EXCLUDED_HIGHWAY: "Highway type outside the classifier's scope",
+}
+_TABLE_RULES = [member for member in Rule if member not in _OUT_OF_SCOPE_DESCRIPTIONS]
+if [r.rule for r in _D.rules] != [member.value for member in _TABLE_RULES]:
+    raise ImportError(
+        "rules.md's rules table and osm_lts.Rule disagree: "
+        f"{[r.rule for r in _D.rules]} vs {[m.value for m in _TABLE_RULES]}"
+    )
+# The rules table, unpacked once for the hot loop in ``Classifier._walk``:
+# (Rule, LTS, highways, cycleway kinds, (op, n) speed test, (op, n) lanes test).
+_ROWS = tuple(
+    (
+        Rule(row.rule),
+        LTS(row.lts),
+        row.highway,
+        row.cycleway,
+        None if row.speed_mph is None else row.speed_mph.compiled(),
+        None if row.lanes is None else row.lanes.compiled(),
+    )
+    for row in _D.rules
+)
+_RULE_DESCRIPTIONS = {
+    **_OUT_OF_SCOPE_DESCRIPTIONS,
+    **{Rule(row.rule): row.description for row in _D.rules},
+}
+
+
+@dataclass(frozen=True)
+class Explanation:
+    """A classification and the reason for it. See :meth:`Classifier.explain`."""
+
+    lts: Optional[LTS]
+    """LTS 1-4, or ``None`` when the way is out of scope."""
+    rule: Rule
+    """The rule that decided :attr:`lts`."""
+    highway: Optional[str]
+    speed_mph: Optional[int] = None
+    """Resolved speed, or ``None`` if no rule read it before one decided."""
+    speed_source: Optional[Source] = None
+    lane_count: Optional[int] = None
+    """Resolved lane count, or ``None`` if no rule read it before one decided."""
+    lane_source: Optional[Source] = None
+    cycleway_key: Optional[str] = None
+    """The ``cycleway*`` key the facility was read from, if any. Reported
+    for every in-scope way, whichever rule decided."""
+    cycleway_kind: Optional[str] = None
+    """That key's value (``lane``, ``track``, ...), if any."""
 
 
 _LEADING_DIGITS_RE = re.compile(r"\d+")
@@ -49,12 +179,6 @@ _KMH_TO_MPH = 0.621371
 # "US:urban" (no state segment) unchanged. Mirrored in SQL by
 # ``regexp_replace(<type>, '^([A-Za-z]+)-[A-Za-z]+(:.+)$', '\1\2')``.
 _MAXSPEED_TYPE_RE = re.compile(r"^([A-Za-z]+)-[A-Za-z]+(:.+)$")
-# Rule-tier sets live in ``_constants`` so the SQL emitter can read
-# the same definitions — adding a new arterial type stays a one-
-# place edit. Aliased here for readability of the rule branches.
-_BIKE_LANE_KINDS = C._BIKE_LANE_KINDS
-_LTS3_HIGHWAYS = C._LTS3_HIGHWAYS
-_LTS4_HIGHWAYS = C._LTS4_HIGHWAYS
 
 
 def _coerce_int(value: Optional[str]) -> Optional[int]:
@@ -211,103 +335,148 @@ class Classifier:
         maxspeed: Optional[str],
         maxspeed_type: Optional[str] = None,
     ) -> int:
-        explicit = _coerce_speed_mph(maxspeed)
-        if explicit is not None:
-            return explicit
-        implicit = self._resolve_implicit_mph(maxspeed_type)
-        if implicit is not None:
-            return implicit
-        return self.speed_mph_by_highway.get(highway, self.speed_mph_fallback)
+        return self._resolve_speed_with_source(highway, maxspeed, maxspeed_type)[0]
 
     def _resolve_lane_count(self, highway: str, lanes: Optional[str]) -> int:
-        explicit = _coerce_int(lanes)
-        if explicit is not None:
-            return explicit
-        return self.lane_count_by_highway.get(highway, self.lane_count_fallback)
+        return self._resolve_lanes_with_source(highway, lanes)[0]
 
     def _resolve_cycleway_kind(
         self, tags: Mapping[str, str]
     ) -> Optional[str]:
-        """First non-empty cycleway* value, in :attr:`cycleway_tag_keys` order."""
+        """First non-empty cycleway* value, in :attr:`cycleway_tag_keys` order.
+
+        Kept for callers of earlier releases; :meth:`explain` reports the
+        same value as ``cycleway_kind``.
+        """
+        return self._cycleway(tags)[1]
+
+    def _resolve_speed_with_source(
+        self,
+        highway: str,
+        maxspeed: Optional[str],
+        maxspeed_type: Optional[str] = None,
+    ) -> tuple[int, Source]:
+        """:meth:`_resolve_speed_mph` plus which input it came from."""
+        explicit = _coerce_speed_mph(maxspeed)
+        if explicit is not None:
+            return explicit, Source.TAGGED
+        implicit = self._resolve_implicit_mph(maxspeed_type)
+        if implicit is not None:
+            return implicit, Source.LEGAL_DEFAULT
+        if highway in self.speed_mph_by_highway:
+            return self.speed_mph_by_highway[highway], Source.HIGHWAY_DEFAULT
+        return self.speed_mph_fallback, Source.FALLBACK
+
+    def _resolve_lanes_with_source(
+        self, highway: str, lanes: Optional[str]
+    ) -> tuple[int, Source]:
+        """:meth:`_resolve_lane_count` plus which input it came from."""
+        explicit = _coerce_int(lanes)
+        if explicit is not None:
+            return explicit, Source.TAGGED
+        if highway in self.lane_count_by_highway:
+            return self.lane_count_by_highway[highway], Source.HIGHWAY_DEFAULT
+        return self.lane_count_fallback, Source.FALLBACK
+
+    def explain(self, tags: Mapping[str, str]) -> Explanation:
+        """Classify ``tags`` and say why.
+
+        Returns an :class:`Explanation` holding the LTS (``None`` when
+        the way is out of scope), the :class:`Rule` that decided it, the
+        way's cycleway facility, and the speed and lane count with the
+        :class:`Source` each was resolved from. Speed and lane count are
+        reported only if some rule read them on the way to the decision:
+        a ``highway=cycleway`` is LTS 1 whatever its speed, so no speed
+        is reported for it.
+
+        This is the classifier's only rule ladder; :meth:`classify` is
+        ``explain(tags).lts``.
+
+        Examples:
+            >>> e = Classifier().explain({"highway": "residential"})
+            >>> int(e.lts), e.rule.value, e.speed_mph, e.speed_source.value
+            (2, 'slow_residential', 25, 'highway_default')
+            >>> Classifier().explain({"highway": "cycleway"}).speed_mph is None
+            True
+        """
+        (rule, lts, highway, cycleway_key, cycleway_kind,
+         speed, speed_source, lanes, lane_source) = self._walk(tags)
+        return Explanation(
+            lts=lts,
+            rule=rule,
+            highway=highway,
+            speed_mph=speed,
+            speed_source=speed_source,
+            lane_count=lanes,
+            lane_source=lane_source,
+            cycleway_key=cycleway_key,
+            cycleway_kind=cycleway_kind,
+        )
+
+    def _cycleway(self, tags: Mapping[str, str]) -> tuple:
+        """``(key, value)`` of the first set ``cycleway*`` key, else ``(None, None)``."""
         for key in self.cycleway_tag_keys:
             value = tags.get(key)
             if value:
-                return value
-        return None
+                return key, value
+        return None, None
+
+    def _walk(self, tags: Mapping[str, str]) -> tuple:
+        """Walk the rules table in rules.md, top to bottom; first match wins.
+
+        The one rule ladder behind :meth:`explain` and :meth:`classify`.
+        Returns ``(rule, lts, highway, cycleway_key, cycleway_kind, speed,
+        speed_source, lanes, lane_source)``. Plain locals rather than an
+        :class:`Explanation`, so :meth:`classify` stays cheap on bulk runs.
+        Speed and lanes are resolved the first time a rule tests them, so
+        they're ``None`` unless something read them.
+        """
+        highway = tags.get("highway")
+        if not highway:
+            return (Rule.NO_HIGHWAY, None, None, None, None, None, None, None, None)
+        if highway in self.excluded_highways:
+            return (
+                Rule.EXCLUDED_HIGHWAY, None, highway, None, None,
+                None, None, None, None,
+            )
+        cycleway_key, cycleway_kind = self._cycleway(tags)
+        speed = speed_source = lanes = lane_source = None
+        for rule, lts, highways, kinds, speed_test, lane_test in _ROWS:
+            if highways is not None and highway not in highways:
+                continue
+            if kinds is not None and cycleway_kind not in kinds:
+                continue
+            if speed_test is not None:
+                if speed is None:
+                    speed, speed_source = self._resolve_speed_with_source(
+                        highway,
+                        tags.get("maxspeed"),
+                        tags.get("maxspeed:type") or tags.get("source:maxspeed"),
+                    )
+                if not speed_test[0](speed, speed_test[1]):
+                    continue
+            if lane_test is not None:
+                if lanes is None:
+                    lanes, lane_source = self._resolve_lanes_with_source(
+                        highway, tags.get("lanes")
+                    )
+                if not lane_test[0](lanes, lane_test[1]):
+                    continue
+            return (
+                rule, lts, highway, cycleway_key, cycleway_kind,
+                speed, speed_source, lanes, lane_source,
+            )
+        # Unreachable: rules.md's last rule has no conditions (checked on load).
+        raise AssertionError("no rule matched")
 
     def classify(self, tags: Mapping[str, str]) -> Optional[LTS]:
         """Return the Furth LTS classification for an OSM way's tags.
 
         See :func:`classify` for the full docstring; this method is
-        the same logic with this instance's overridable defaults.
+        the same logic with this instance's overridable defaults. Use
+        :meth:`explain` for the rule and inputs behind the result.
         """
-        highway = tags.get("highway")
-        if not highway or highway in self.excluded_highways:
-            return None
-
-        cycleway_kind = self._resolve_cycleway_kind(tags)
-        maxspeed_type = tags.get("maxspeed:type") or tags.get("source:maxspeed")
-        speed_mph = self._resolve_speed_mph(
-            highway, tags.get("maxspeed"), maxspeed_type
-        )
-        lane_count = self._resolve_lane_count(highway, tags.get("lanes"))
-
-        # LTS 1 — separated paths, designated bike infrastructure,
-        # slow-by-design streets. Short-circuits before any speed/
-        # lane bump: a `cycleway=track` on a 40 mph arterial still
-        # returns 1 because the rider is physically separated from
-        # traffic.
-        if highway == "cycleway":
-            return LTS.KID_COMFORTABLE
-        if highway == "path":
-            return LTS.KID_COMFORTABLE
-        # A ``track`` is an agricultural / forestry access way. Motor
-        # vehicles are legally permitted, but there is no *through*
-        # traffic to be stressed by — which is what LTS measures — so
-        # tracks belong with ``path`` rather than in the LTS 3 catch-
-        # all they used to fall through to. Unconditional, like
-        # ``path``: no ``tracktype`` or ``surface`` qualifier, because
-        # Furth scores traffic stress and not ride quality (see README
-        # "Scope and limitations").
-        if highway == "track":
-            return LTS.KID_COMFORTABLE
-        if highway == "living_street":
-            return LTS.KID_COMFORTABLE
-        if cycleway_kind == "track":
-            return LTS.KID_COMFORTABLE
-
-        # LTS 4 — high-speed, multi-lane arterial, or trunk/primary
-        # by tag class. A painted bike lane on a >35 mph 6-lane road
-        # is still LTS 4; paint doesn't reduce stress on a hostile
-        # street.
-        if speed_mph > 35:
-            return LTS.STRONG_AND_FEARLESS
-        if highway in _LTS4_HIGHWAYS:
-            return LTS.STRONG_AND_FEARLESS
-        if lane_count >= 3 and speed_mph > 30:
-            return LTS.STRONG_AND_FEARLESS
-
-        # LTS 2 — calm residential or a bike lane on a slow street.
-        if cycleway_kind in _BIKE_LANE_KINDS and speed_mph <= 25:
-            return LTS.MOST_ADULTS
-        if highway in {"residential", "unclassified"} and speed_mph <= 25:
-            return LTS.MOST_ADULTS
-
-        # LTS 3 — moderate-speed mixed traffic, bike lane on a
-        # faster street, tertiary collectors, or any residential/
-        # unclassified not already absorbed by the LTS 2 branch.
-        if cycleway_kind in _BIKE_LANE_KINDS:
-            return LTS.EXPERIENCED_ONLY
-        if highway in _LTS3_HIGHWAYS:
-            return LTS.EXPERIENCED_ONLY
-
-        # Service ways (alleys, driveways, parking aisles) — assume
-        # low traffic. Real OSM data tags these heavily, so absent
-        # any explicit speed signal we treat them as comfortable.
-        if highway == "service":
-            return LTS.KID_COMFORTABLE
-
-        return LTS.EXPERIENCED_ONLY
+        return self._walk(tags)[1]
 
     # Calling a classifier directly is the ergonomic API:
     #     clf = Classifier(...)
@@ -355,3 +524,18 @@ def classify(tags: Mapping[str, str]) -> Optional[LTS]:
         True
     """
     return _DEFAULT_CLASSIFIER.classify(tags)
+
+
+def explain(tags: Mapping[str, str]) -> Explanation:
+    """Classify ``tags`` with the default rules and say why.
+
+    Convenience wrapper around :meth:`Classifier.explain`.
+
+    Examples:
+        >>> e = explain({"highway": "tertiary", "cycleway:right": "lane"})
+        >>> int(e.lts), e.rule.value, e.cycleway_key, e.cycleway_kind
+        (3, 'bike_lane_faster', 'cycleway:right', 'lane')
+        >>> explain({"highway": "footway"}).rule.value
+        'excluded_highway'
+    """
+    return _DEFAULT_CLASSIFIER.explain(tags)

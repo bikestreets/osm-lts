@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.6.0 — unreleased
+
+- Feature: **`explain(tags)`** (and `Classifier.explain`) returns an
+  `Explanation`: the LTS, the `Rule` that decided it, and the inputs that
+  rule read — speed and lane count, each with its `Source` (`tagged`,
+  `legal_default`, `highway_default`, `fallback`) — plus the `cycleway*` key
+  and value used. Speed and lanes are reported only when a rule read them
+  before deciding. `Rule` values are stable identifiers, and each rule and
+  `LTS` level has a plain-language `description`. `classify(tags)` is now
+  `explain(tags).lts`.
+- The classifier is now **defined in one readable file**,
+  `src/osm_lts/rules.md`: the ordered rules, out-of-scope highways, default
+  speeds and lane counts, legal default speeds and cycleway key order, as
+  Markdown tables. The Python classifier and the SQL `CASE` are both
+  generated from it at import (standard library only), so they can't drift.
+  The emitted SQL now labels each branch with its rule. Python ratings are
+  unchanged (checked against 0.5.1 over every combination of the tags the
+  rules read); for SQL changes see the fix below.
+- Fix: a `Classifier(excluded_highways=frozenset())` (rate every highway)
+  now emits valid SQL. `lts_case_expression` previously produced
+  `IN ()`, a syntax error; `excluded_highways_in_list` now raises
+  `ValueError` for an empty set, since no list can stand in for "nothing".
+- Fix: the SQL form now reads empty and padded tag values the way the Python
+  classifier always has. An empty `highway` is unrated; an empty `cycleway*`
+  value no longer hides a later key's facility (`cycleway=""` +
+  `cycleway:right=track` is LTS 1, as in Python); an empty `maxspeed:type`
+  falls through to `source:maxspeed`; and a zone with stray spaces
+  (`"US:rural "`, or a tab) still matches. SQL results change only for ways with such
+  tags; Python results don't change. Consumers that cache SQL output should
+  invalidate it.
+- `classify` walks the same rules table as `explain`. It is about 1.4x the
+  cost of 0.5.1's hand-written branches.
+- Internals: classification no longer goes through the private
+  `Classifier._resolve_speed_mph` / `_resolve_lane_count` (they remain, as
+  wrappers). A subclass overriding them should override
+  `_resolve_speed_with_source` / `_resolve_lanes_with_source` instead.
+- `Rule` and `Source` format as their values (`str(rule)`, `f"{rule}"` give
+  `"path"`) on every Python version.
+
 ## 0.5.1 — 2026-08-16
 
 - Fix: `highway=track` now classifies as LTS 1 instead of falling

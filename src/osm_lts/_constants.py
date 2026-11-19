@@ -1,105 +1,46 @@
-"""Tunable defaults for the LTS classifier.
+"""Tunable defaults for the LTS classifier, read from ``rules.md``.
 
-These mirror the SQL CASE branches in the original Bike Streets
-implementation. Surfaced as module-level constants so callers can
-inspect them and (in a future minor release) override them via a
-``Classifier`` instance.
+The values live in ``rules.md`` beside this module (see ``_rules``); this
+module exposes them under their long-standing public names so callers can
+inspect them (e.g. to say "we assumed 25 mph because the way was untagged")
+and pass edited copies to a :class:`~osm_lts.Classifier`.
 """
 
 from __future__ import annotations
 
-# Highways the classifier returns ``None`` for. Bikes are prohibited
-# (``motorway``), the way isn't relevant to cyclist stress
-# (``footway``, ``sidewalk``, ``steps``), or the way is pedestrian-
-# only by convention.
-EXCLUDED_HIGHWAYS: frozenset[str] = frozenset(
-    {
-        "motorway",
-        "motorway_link",
-        "footway",
-        "sidewalk",
-        "steps",
-        "pedestrian",
-    }
-)
+from ._rules import DEFINITION as _D
+from ._rules import RulesFileError
 
-# Speed defaults in mph when the way has no explicit ``maxspeed`` tag.
-# Most US residential streets don't carry a maxspeed; the planning
-# default is the posted limit for the highway class.
-DEFAULT_SPEED_MPH_BY_HIGHWAY: dict[str, int] = {
-    "living_street": 15,
-    "residential": 25,
-    "unclassified": 25,
-    "service": 25,
-    "tertiary": 30,
-    "tertiary_link": 30,
-    "secondary": 35,
-    "secondary_link": 35,
-    "primary": 40,
-    "primary_link": 40,
-    "trunk": 40,
-    "trunk_link": 40,
-}
-DEFAULT_SPEED_MPH_FALLBACK: int = 25
+# Highways the classifier returns ``None`` for.
+EXCLUDED_HIGHWAYS: frozenset[str] = _D.excluded_highways
 
-# Implicit/legal default speeds (mph) referenced by the OSM
-# ``maxspeed:type`` / ``source:maxspeed`` tags rather than posted on the
-# way itself. When a way carries no numeric ``maxspeed`` but does say
-# *which* legal default applies (e.g. ``maxspeed:type=US-CO:urban``),
-# that reference is a more authoritative fallback than guessing from the
-# highway class. Values are the US legal defaults catalogued by the OSM
-# wiki "Default speed limits" page / the osm-legal-default-speeds
-# dataset. A country-qualified zone (``US-CO:urban``) with no explicit
-# entry falls back to the country generic (``US:urban``) — see
-# ``Classifier._resolve_implicit_mph``. Add a state-qualified key here to
-# model a jurisdiction whose statutory default differs from the generic.
-DEFAULT_IMPLICIT_MAXSPEED_MPH: dict[str, int] = {
-    "US:living_street": 10,
-    "US:urban": 25,
-    "US:rural": 55,
-}
+# Speed (mph) when a way has no usable ``maxspeed`` or legal default.
+DEFAULT_SPEED_MPH_BY_HIGHWAY: dict[str, int] = dict(_D.speed_mph_by_highway)
+DEFAULT_SPEED_MPH_FALLBACK: int = _D.speed_mph_fallback
 
-# Lane-count defaults when ``lanes`` is missing.
-DEFAULT_LANE_COUNT_BY_HIGHWAY: dict[str, int] = {
-    "residential": 2,
-    "service": 2,
-    "primary": 4,
-    "primary_link": 4,
-    "secondary": 4,
-    "secondary_link": 4,
-}
-DEFAULT_LANE_COUNT_FALLBACK: int = 2
+# Statutory defaults (mph) named by ``maxspeed:type`` / ``source:maxspeed``.
+DEFAULT_IMPLICIT_MAXSPEED_MPH: dict[str, int] = dict(_D.implicit_maxspeed_mph)
 
-# Rule-tier highway sets — kept as module-level constants (not on
-# ``Classifier``) because they're part of Furth's published rule
-# tree, not tunable defaults. The Python branches in ``_classify``
-# and the SQL emitter in ``sql`` both read from here so adding a
-# new arterial type is a one-place edit.
-_BIKE_LANE_KINDS: frozenset = frozenset(
-    {"lane", "opposite_lane", "shared_lane"}
-)
-_LTS4_HIGHWAYS: frozenset = frozenset(
-    {"primary", "primary_link", "trunk", "trunk_link"}
-)
-_LTS3_HIGHWAYS: frozenset = frozenset(
-    {
-        "tertiary",
-        "tertiary_link",
-        "secondary",
-        "secondary_link",
-        "residential",
-        "unclassified",
-    }
-)
+# Lane count when ``lanes`` is missing.
+DEFAULT_LANE_COUNT_BY_HIGHWAY: dict[str, int] = dict(_D.lane_count_by_highway)
+DEFAULT_LANE_COUNT_FALLBACK: int = _D.lane_count_fallback
 
-# OSM cycleway sub-tags consulted in priority order. ``cycleway`` (the
-# unprefixed key) wins when present, then per-side variants. A way
-# tagged with conflicting sides (e.g. lane right, track left) returns
-# the first one set — callers wanting per-direction precision should
-# preprocess the tags themselves.
-CYCLEWAY_TAG_KEYS: tuple[str, ...] = (
-    "cycleway",
-    "cycleway:right",
-    "cycleway:left",
-    "cycleway:both",
-)
+# ``cycleway*`` keys consulted in priority order.
+CYCLEWAY_TAG_KEYS: tuple[str, ...] = _D.cycleway_tag_keys
+
+
+def _rule_set(rule: str, column: str) -> frozenset:
+    row = next((r for r in _D.rules if r.rule == rule), None)
+    if row is None:
+        raise RulesFileError(
+            f"rules.md: rules table has no {rule!r} rule (osm_lts._constants "
+            "reads it)"
+        )
+    return getattr(row, column)
+
+
+# Kept for callers that read these private sets from earlier releases. The
+# rules table is the source; nothing in the package reads these.
+_BIKE_LANE_KINDS: frozenset = _rule_set("bike_lane_slow", "cycleway")
+_LTS4_HIGHWAYS: frozenset = _rule_set("arterial", "highway")
+_LTS3_HIGHWAYS: frozenset = _rule_set("collector", "highway")

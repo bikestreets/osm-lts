@@ -63,8 +63,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from . import _constants as C
+from ._rules import DEFINITION as _D
 from ._classify import _KMH_TO_MPH, Classifier, _DEFAULT_CLASSIFIER
+
+RULE_ROWS = _D.rules
 
 __all__ = [
     "cycleway_kind_expression",
@@ -94,7 +96,17 @@ def excluded_highways_in_list(
     ``planet_osm_ways`` before the LTS CASE runs::
 
         WHERE tags->>'highway' NOT IN ({excluded_highways_in_list()})
+
+    Raises:
+        ValueError: if the classifier excludes nothing. ``IN ()`` isn't
+            valid SQL, and no list can stand in for "nothing" in both
+            ``IN`` and ``NOT IN`` — skip the filter instead.
     """
+    if not classifier.excluded_highways:
+        raise ValueError(
+            "classifier.excluded_highways is empty; there is nothing to "
+            "filter, so omit the IN / NOT IN clause"
+        )
     return _quote_in(classifier.excluded_highways)
 
 
@@ -127,8 +139,8 @@ def speed_mph_expression(
     """
     mt = maxspeed_type_sql or (
         "COALESCE(\n"
-        "        tags::jsonb->>'maxspeed:type',\n"
-        "        tags::jsonb->>'source:maxspeed'\n"
+        "        NULLIF(tags::jsonb->>'maxspeed:type', ''),\n"
+        "        NULLIF(tags::jsonb->>'source:maxspeed', '')\n"
         "    )"
     )
     digits = f"substring({maxspeed_sql} from '[0-9]+')"
@@ -144,7 +156,10 @@ def speed_mph_expression(
         for zone, n in classifier.implicit_maxspeed_mph.items()
     )
     implicit = (
-        f"CASE regexp_replace(COALESCE({mt}, ''),\n"
+        # Trim all surrounding whitespace, as Python's str.strip() does
+        # before matching (btrim alone only removes spaces).
+        f"CASE regexp_replace(regexp_replace(COALESCE({mt}, ''), "
+        "'^\\s+|\\s+$', '', 'g'),\n"
         "             '^([A-Za-z]+)-[A-Za-z]+(:.+)$', '\\1\\2')\n"
         f"{implicit_branches}\n"
         "    END"
@@ -215,8 +230,10 @@ def cycleway_kind_expression(
     tuple changes which sub-tag wins for a way that carries multiple
     cycleway variants.
     """
+    # NULLIF: an empty value doesn't count as set, as in the Python
+    # classifier, so a later key can still supply the facility.
     args = ",\n    ".join(
-        f"({tags_jsonb})->>{_quote(key)}"
+        f"NULLIF(({tags_jsonb})->>{_quote(key)}, '')"
         for key in classifier.cycleway_tag_keys
     )
     return f"COALESCE(\n    {args}\n)"
@@ -232,7 +249,11 @@ def lts_case_expression(
     cycleway_kind_sql: Optional[str] = None,
     classifier: Classifier = _DEFAULT_CLASSIFIER,
 ) -> str:
-    """Full PostgreSQL CASE expression returning LTS 1-4, or NULL for excluded ways.
+    """Full PostgreSQL CASE expression returning LTS 1-4, or NULL when out of scope.
+
+    NULL means no or empty ``highway``, or one the classifier excludes.
+    Generated from the rules table in ``rules.md``; each branch carries a
+    comment naming its rule.
 
     Drops directly into a ``SELECT``::
 
@@ -256,11 +277,15 @@ def lts_case_expression(
             this when ``highway`` is a separate column.
         maxspeed_sql: Override the ``->>'maxspeed'`` extraction.
         maxspeed_type_sql: Override the implicit-default lookup source.
-            Defaults to ``COALESCE(->>'maxspeed:type', ->>'source:maxspeed')``.
+            Defaults to ``COALESCE(NULLIF(->>'maxspeed:type', ''),
+            NULLIF(->>'source:maxspeed', ''))``. A custom expression should
+            map an empty value to NULL the same way, or SQL and Python can
+            disagree on such ways.
         lanes_sql: Override the ``->>'lanes'`` extraction.
         cycleway_kind_sql: Override the cycleway COALESCE entirely
             — useful when cycleway sub-tags are pre-resolved to a
-            single column.
+            single column. Map empty values to NULL (``NULLIF(x, '')``)
+            so an empty key doesn't hide a later one, as in Python.
         classifier: :class:`Classifier` instance whose
             speed/lane/exclusion/cycleway-key fields control the
             emitted defaults.
@@ -273,8 +298,8 @@ def lts_case_expression(
     h = highway_sql or f"({tags_jsonb})->>'highway'"
     m = maxspeed_sql or f"({tags_jsonb})->>'maxspeed'"
     mt = maxspeed_type_sql or (
-        f"COALESCE(({tags_jsonb})->>'maxspeed:type', "
-        f"({tags_jsonb})->>'source:maxspeed')"
+        f"COALESCE(NULLIF(({tags_jsonb})->>'maxspeed:type', ''), "
+        f"NULLIF(({tags_jsonb})->>'source:maxspeed', ''))"
     )
     ln = lanes_sql or f"({tags_jsonb})->>'lanes'"
     cw = cycleway_kind_sql or cycleway_kind_expression(
@@ -284,49 +309,52 @@ def lts_case_expression(
         h, m, maxspeed_type_sql=mt, classifier=classifier
     )
     lanes = lane_count_expression(h, ln, classifier=classifier)
-    excluded = excluded_highways_in_list(classifier)
+    # An empty exclusion set means "rate every highway": only a missing
+    # highway is out of scope then (``IN ()`` would be a syntax error).
+    # An empty highway is unrated too, as in the Python classifier.
+    out_of_scope = f"{h} IS NULL OR {h} = ''"
+    if classifier.excluded_highways:
+        out_of_scope += f" OR {h} IN ({excluded_highways_in_list(classifier)})"
 
-    # Rule-tier highway sets come from the same private constants
-    # the Python branches use — see ``_constants._LTS{3,4}_HIGHWAYS``
-    # / ``_BIKE_LANE_KINDS``. Adding a new arterial type to the LTS 4
-    # set updates both the Python classifier and this CASE in one
-    # edit.
-    lts4_in = _quote_in(C._LTS4_HIGHWAYS)
-    bike_lane_in = _quote_in(C._BIKE_LANE_KINDS)
-    lts2_residential_in = _quote_in({"residential", "unclassified"})
-    tertiary_in = _quote_in({"tertiary", "tertiary_link"})
-    secondary_in = _quote_in({"secondary", "secondary_link"})
-    lts3_residential_in = _quote_in({"residential", "unclassified"})
+    return (
+        "CASE\n"
+        f"    WHEN {out_of_scope} THEN NULL\n"
+        + _rule_branches(highway=h, cycleway=cw, speed=speed, lanes=lanes)
+        + "\nEND"
+    )
 
-    fb = classifier.speed_mph_fallback  # noqa: F841 (referenced below via `speed`)
 
-    return f"""CASE
-    WHEN {h} IS NULL OR {h} IN ({excluded}) THEN NULL
+def _in_or_equals(expression: str, values) -> str:
+    values = sorted(values)
+    if len(values) == 1:
+        return f"{expression} = {_quote(values[0])}"
+    return f"{expression} IN ({_quote_in(values)})"
 
-    -- LTS 1: separated, designated, slow-by-design
-    WHEN {h} = 'cycleway' THEN 1
-    WHEN {h} = 'path' THEN 1
-    WHEN {h} = 'track' THEN 1          -- highway=track: farm/forest access
-    WHEN {h} = 'living_street' THEN 1
-    WHEN ({cw}) = 'track' THEN 1       -- cycleway=track: separated alongside a road
 
-    -- LTS 4: high-speed / arterial / multi-lane
-    WHEN ({speed}) > 35 THEN 4
-    WHEN {h} IN ({lts4_in}) THEN 4
-    WHEN ({lanes}) >= 3 AND ({speed}) > 30 THEN 4
+def _rule_branches(*, highway: str, cycleway: str, speed: str, lanes: str) -> str:
+    """One ``WHEN`` per row of the rules table in ``rules.md``, in order.
 
-    -- LTS 2: calm residential or bike lane on a slow street
-    WHEN ({cw}) IN ({bike_lane_in}) AND ({speed}) <= 25 THEN 2
-    WHEN {h} IN ({lts2_residential_in}) AND ({speed}) <= 25 THEN 2
-
-    -- LTS 3: collectors / faster mixed traffic / bike lane on a faster street
-    WHEN ({cw}) IN ({bike_lane_in}) THEN 3
-    WHEN {h} IN ({tertiary_in}) THEN 3
-    WHEN {h} IN ({secondary_in}) THEN 3
-    WHEN {h} IN ({lts3_residential_in}) THEN 3
-
-    -- Service ways (alleys, driveways) -- assume low-traffic
-    WHEN {h} = 'service' THEN 1
-
-    ELSE 3
-END"""
+    The last row has no conditions (checked when rules.md is loaded) and
+    becomes the ``ELSE``. Each branch is preceded by a comment naming its
+    rule, so the emitted SQL reads like the table it came from.
+    """
+    branches = []
+    for row in RULE_ROWS:
+        conditions = []
+        if row.highway is not None:
+            conditions.append(_in_or_equals(highway, row.highway))
+        if row.cycleway is not None:
+            conditions.append(_in_or_equals(f"({cycleway})", row.cycleway))
+        if row.speed_mph is not None:
+            conditions.append(row.speed_mph.sql(speed))
+        if row.lanes is not None:
+            conditions.append(row.lanes.sql(lanes))
+        # rules.md rejects '%' in descriptions, so this comment can't
+        # collide with a driver's %s / %(name)s placeholders.
+        comment = f"    -- {row.rule}: {row.description}"
+        if conditions:
+            when = " AND ".join(conditions)
+            branches.append(f"{comment}\n    WHEN {when} THEN {row.lts}")
+        else:
+            branches.append(f"{comment}\n    ELSE {row.lts}")
+    return "\n".join(branches)
