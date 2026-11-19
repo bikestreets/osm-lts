@@ -20,7 +20,7 @@ on a calm street or a six-lane arterial.
 pip install osm-lts
 ```
 
-Pure Python, no dependencies, Python 3.9+.
+Pure Python, no dependencies, Python 3.10+.
 
 ## Use
 
@@ -60,21 +60,53 @@ Input is JSON, JSONL, or a single JSON array — auto-detected.
 
 ## How it works
 
-The classifier mirrors Furth's published rules:
+The whole classifier is defined in one readable file,
+[`src/osm_lts/rules.md`](https://github.com/bikestreets/osm-lts/blob/main/src/osm_lts/rules.md): the ordered rules plus the
+out-of-scope highways, default speeds and lane counts, legal default speeds,
+and the order `cycleway*` keys are read in. Both the Python classifier and the
+SQL `CASE` expression are generated from it when the package is imported, so
+they always agree. To see what the classifier does, read that file. Defaults
+can be edited there freely; a rule row is tied to a member of `osm_lts.Rule`
+(its stable public name), so adding, renaming or reordering rules means
+changing that enum to match. The package refuses to import if they differ.
 
-| Tier  | Description                  | Example triggers                                                |
-| :---: | ---------------------------- | --------------------------------------------------------------- |
-| LTS 1 | Suitable for children        | `highway=cycleway` / `path` / `track`, `living_street`, `cycleway=track` |
-| LTS 2 | Most adults will tolerate    | `residential` ≤25 mph, bike lane on a slow street               |
-| LTS 3 | Experienced cyclists only    | `tertiary`, fast residential, bike lane on a faster street      |
-| LTS 4 | Strong-and-fearless only     | `primary` / `trunk`, `>35 mph`, `≥3 lanes` and `>30 mph`        |
+The rules are checked top to bottom and the first match wins:
 
-The branches evaluate top-to-bottom and short-circuit on the first match.
-Order matters — a `cycleway=track` on a 40 mph arterial returns LTS 1
-because separation wins over speed. Highways outside scope (`motorway`,
+| Tier  | Who it suits                                  | Example triggers                                                       |
+| :---: | --------------------------------------------- | ---------------------------------------------------------------------- |
+| LTS 1 | Suitable for children                         | `highway=cycleway` / `path` / `track`, `living_street`, `cycleway=track` |
+| LTS 2 | Tolerable for most adults                     | `residential` ≤25 mph, bike lane on a slow street                      |
+| LTS 3 | Tolerable for enthused and confident adults   | `tertiary`, fast residential, bike lane on a faster street             |
+| LTS 4 | Tolerable only for strong and fearless riders | `primary` / `trunk`, `>35 mph`, `≥3 lanes` and `>30 mph`               |
+
+Order matters: a `cycleway=track` on a 40 mph arterial returns LTS 1 because
+separation is checked before speed. Highways outside scope (`motorway`,
 `footway`, `sidewalk`, `steps`, `pedestrian`) return `None`.
 
-When `maxspeed` or `lanes` are missing, highway-typical defaults fill in:
+### Why a way got its rating
+
+`explain` returns the rating together with the rule that decided it and the
+inputs that rule read, each with where it came from:
+
+```python
+from osm_lts import explain
+
+e = explain({"highway": "residential", "lanes": "2"})
+e.lts                    # <LTS.MOST_ADULTS: 2>
+e.rule.value             # 'slow_residential'
+e.rule.description       # 'Residential or unclassified street at 25 mph or less'
+e.speed_mph, e.speed_source.value   # (25, 'highway_default')
+e.lts.description        # 'Tolerable for most adults'
+```
+
+Speed and lane count are reported only if a rule had to read them before
+deciding: a `highway=cycleway` is LTS 1 at any speed, so its explanation has no
+speed. `speed_source` / `lane_source` is one of `tagged`, `legal_default`
+(from `maxspeed:type`), `highway_default` or `fallback`. `Rule` values are
+stable identifiers, safe to store. `classify(tags)` is `explain(tags).lts`.
+
+The defaults are also public constants, for showing in your own UI (e.g. "we
+assumed 25 mph because the way was untagged"):
 
 ```python
 from osm_lts import (
@@ -83,9 +115,6 @@ from osm_lts import (
     EXCLUDED_HIGHWAYS,
 )
 ```
-
-These are public so callers can read them in their own UIs (e.g. "we
-assumed 25 mph because the way was untagged").
 
 ### Scope and limitations
 
@@ -275,9 +304,17 @@ narrower({"highway": "path", "bicycle": "designated"})  # None
 
 # Per-highway speed overrides:
 slower_residential = Classifier(speed_mph_by_highway={"residential": 20})
+
+# Rate every highway, footways included. The SQL form then treats only a
+# missing highway as unrated:
+everything = Classifier(excluded_highways=frozenset())
 ```
 
-`Classifier` is a frozen dataclass — instances are hashable and
+The rules themselves (which conditions give which LTS) aren't overridden per
+instance: they're Furth's method, defined once in `rules.md`. A `Classifier`
+changes the defaults those rules read.
+
+`Classifier` is a frozen dataclass — instances are immutable and
 thread-safe to share. Use `dataclasses.replace(clf, ...)` for tweaked
 copies.
 

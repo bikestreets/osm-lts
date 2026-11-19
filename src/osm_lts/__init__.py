@@ -6,7 +6,16 @@ Python function operating on OSM tag dicts. No PostGIS, no Django, no
 network I/O — just OSM tags in, LTS 1-4 (or ``None``) out.
 """
 
-from ._classify import LTS, Classifier, classify, parse_maxspeed_mph
+from ._classify import (
+    LTS,
+    Classifier,
+    Explanation,
+    Rule,
+    Source,
+    classify,
+    explain,
+    parse_maxspeed_mph,
+)
 from ._constants import (
     CYCLEWAY_TAG_KEYS,
     DEFAULT_IMPLICIT_MAXSPEED_MPH,
@@ -17,12 +26,16 @@ from ._constants import (
     EXCLUDED_HIGHWAYS,
 )
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 __all__ = [
     "LTS",
     "Classifier",
     "classify",
+    "explain",
+    "Explanation",
+    "Rule",
+    "Source",
     "parse_maxspeed_mph",
     "EXCLUDED_HIGHWAYS",
     "DEFAULT_SPEED_MPH_BY_HIGHWAY",

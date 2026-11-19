@@ -7,7 +7,7 @@ name = "osm-lts"
 dynamic = ["version"]
 description = "Classify OpenStreetMap ways by Level of Traffic Stress (LTS) using the Furth methodology."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Bike Streets" }]
@@ -24,11 +24,11 @@ keywords = [
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: GIS",
   "Topic :: Sociology",
   "Operating System :: OS Independent",
